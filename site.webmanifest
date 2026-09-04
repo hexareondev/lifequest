@@ -1,0 +1,14 @@
+{
+  "name": "QuestLife",
+  "short_name": "QuestLife",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#09090b",
+  "theme_color": "#09090b",
+  "icons": [
+	  { "src": "./icons/icon-192.png", "type": "image/png", "sizes": "192x192" },
+	  { "src": "./icons/icon-512.png", "type": "image/png", "sizes": "512x512" },
+	  { "src": "./icons/icon-512.png", "type": "image/png", "sizes": "512x512", "purpose": "maskable" }
+	]
+}
