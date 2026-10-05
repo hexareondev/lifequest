@@ -44,7 +44,7 @@ export function allNoteTags(notes) {
     .map(([tag, count]) => ({ tag, count }))
     .sort((a, b) => b.count - a.count || a.tag.localeCompare(b.tag, "ru"));
 }
-function noteHasAllTags(note, tags) {
+export function noteHasAllTags(note, tags) {
   if (!tags || !tags.length) return true;
   const own = extractTags(note.body).map(t => t.toLowerCase());
   // Иерархический тег засчитывается родителю: фильтр по #работа находит и #работа/отчёты.
@@ -73,7 +73,7 @@ export function notesInFolder(notes, folderId) {
   const fid = folderId || null;
   return (notes || []).filter(n => (n.folderId || null) === fid);
 }
-function folderById(folders, id) { return (folders || []).find(f => f.id === id) || null; }
+export function folderById(folders, id) { return (folders || []).find(f => f.id === id) || null; }
 
 // Путь от корня до папки. Счётчик витков — страховка от испорченного руками бэкапа с циклом:
 // без неё один битый parentId вешает приложение наглухо, а не портит одну хлебную крошку.
@@ -218,7 +218,7 @@ export function buildBranchFiles(state, rootFolderId) {
    ломается при переименовании объекта; поэтому ищем сначала по имени, потом по id (так работают
    вставки из списка, они кладут имя, но старые записи с id продолжают жить), а вместо пустоты
    всегда показываем заметный placeholder. Молча исчезнувший виджет — худший исход. */
-const EMBED_ALIASES = {
+export const EMBED_ALIASES = {
   "человек": "person",  "person": "person",
   "сфера": "sphere",    "sphere": "sphere",
   "книга": "book",      "book": "book",
@@ -260,7 +260,7 @@ export const EMBED_FIELDS = {
     { key: "заметка",  label: "Последняя заметка" },
   ],
 };
-const EMBED_DEFAULT_FIELDS = {
+export const EMBED_DEFAULT_FIELDS = {
   person: ["отношения", "уровень", "прогресс"],
   sphere: ["уровень", "прогресс", "квесты", "привычки"],
   library: ["статус", "оценка", "прогресс"],
@@ -376,7 +376,7 @@ export function insertEmbedEdit(text, pos, snippet) {
    здесь нет и быть не может (файл один, зависимости не тянем), поэтому пишем формат руками.
    Метод хранения — 0 (stored, без сжатия): текст и так невелик, а deflate потребовал бы
    собственной реализации сжатия, где ошибиться куда легче, чем в заголовках. */
-function utf8Bytes(str) { return new TextEncoder().encode(str); }
+export function utf8Bytes(str) { return new TextEncoder().encode(str); }
 
 const CRC32_TABLE = (() => {
   const table = new Uint32Array(256);
@@ -387,7 +387,7 @@ const CRC32_TABLE = (() => {
   }
   return table;
 })();
-function crc32(bytes) {
+export function crc32(bytes) {
   let c = 0xFFFFFFFF;
   for (let i = 0; i < bytes.length; i++) c = CRC32_TABLE[(c ^ bytes[i]) & 0xFF] ^ (c >>> 8);
   return (c ^ 0xFFFFFFFF) >>> 0;

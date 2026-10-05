@@ -5,7 +5,7 @@ import { useEffect, useMemo, useState } from "react";
 import {
   ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Droplet, Pencil, Plus, Trash2, Utensils,
 } from "lucide-react";
-import { addDaysStr, clamp, shiftDateStr, todayStr } from "../core/basics.js";
+import { addDaysStr, clamp, addDaysToDateStr, todayStr } from "../core/basics.js";
 import { fmtDateWithYear } from "../core/format.js";
 import {
   Button, Card, EmptyState, Modal, ProgressBar, StickyAddButton, inputCls, labelCls, SectionHeader,
@@ -754,9 +754,9 @@ export function TodayView({ state, actions }) {
   return (
     <div className="space-y-5">
       <div className="flex items-center justify-between gap-2">
-        <button onClick={() => setDate(shiftDateStr(date,-1))} className="p-2 text-zinc-500 hover:text-zinc-200"><ChevronLeft className="w-4 h-4"/></button>
+        <button onClick={() => setDate(addDaysToDateStr(date,-1))} className="p-2 text-zinc-500 hover:text-zinc-200"><ChevronLeft className="w-4 h-4"/></button>
         <div className="text-sm font-medium text-zinc-200 font-data">{date===todayStr() ? "Сегодня" : fmtDateWithYear(date)}</div>
-        <button onClick={() => setDate(shiftDateStr(date,1))} disabled={date>=todayStr()} className="p-2 text-zinc-500 hover:text-zinc-200 disabled:opacity-30 disabled:cursor-not-allowed"><ChevronRight className="w-4 h-4"/></button>
+        <button onClick={() => setDate(addDaysToDateStr(date,1))} disabled={date>=todayStr()} className="p-2 text-zinc-500 hover:text-zinc-200 disabled:opacity-30 disabled:cursor-not-allowed"><ChevronRight className="w-4 h-4"/></button>
       </div>
 
       <Card className="p-5">

@@ -49,21 +49,21 @@ export function refBranchId(item, collection) {
    Привязка действует, только пока запись-якорь в этой коллекции. Убрали запись — ветка не
    пропадает, а поднимается на верхний уровень: терять содержимое из-за удаления одной записи
    нельзя. Тот же приём самопочинки, что у refBranchId с удалённой веткой. */
-function anchorIsValid(state, collection, anchorId) {
+export function anchorIsValid(state, collection, anchorId) {
   if (!anchorId) return false;
   return collectionRefs(state, collection && collection.id).some(r => r.item.id === anchorId);
 }
-function topLevelBranches(state, collection) {
+export function topLevelBranches(state, collection) {
   return collectionBranches(collection).filter(b => !anchorIsValid(state, collection, b.anchorId));
 }
-function branchesAnchoredTo(state, collection, itemId) {
+export function branchesAnchoredTo(state, collection, itemId) {
   if (!itemId) return [];
   return collectionBranches(collection).filter(b => b.anchorId === itemId);
 }
 
 // Все ветки внутри данной: её записи → привязанные к ним ветки → их записи и так далее.
 // Ограничитель витков — страховка от испорченного руками сохранения с кольцом, как в folderPathOf.
-function branchSubtreeIds(state, collection, branchId) {
+export function branchSubtreeIds(state, collection, branchId) {
   const ids = [branchId];
   const refs = collectionRefs(state, collection && collection.id);
   const branches = collectionBranches(collection);
@@ -226,7 +226,7 @@ export function assignBranchOrder(refs) {
 
 // Перестановка списка: перемещаемый элемент встаёт ПЕРЕД целевым, beforeId === null означает
 // «в конец». Одна реализация на записи и на ветки — правила одинаковые, а расходиться им незачем.
-function reorderBy(list, idOf, movedId, beforeId) {
+export function reorderBy(list, idOf, movedId, beforeId) {
   // Бросок на самого себя — обычное дело при промахе мышью. Без этой проверки элемент уезжал бы
   // в конец: сам себя в списке-без-себя он, разумеется, не находит.
   if (movedId === beforeId) return list;

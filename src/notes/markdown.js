@@ -148,7 +148,7 @@ export function toggleMarkdownCheckbox(text, lineIndex) {
 // обычного маркера списка, иначе "- [ ] " распознается как "- " с текстом "[ ] ".
 const MD_LINE_PREFIX_RE = /^(\s*)(#{1,6} +|> ?|[-*+] +\[[ xX]\] +|[-*+] +|\d+[.)] +)?/;
 
-const MD_ACTIONS = {
+export const MD_ACTIONS = {
   bold:      { kind: "wrap", left: "**", right: "**", placeholder: "жирный" },
   italic:    { kind: "wrap", left: "*",  right: "*",  placeholder: "курсив", single: true },
   strike:    { kind: "wrap", left: "~~", right: "~~", placeholder: "зачёркнутый" },

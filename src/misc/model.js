@@ -66,7 +66,7 @@ export function wheelOptionsFrom(state, prefs) {
   return [...wheelCustomOptions(prefs && prefs.wheelOptions), ...lib];
 }
 
-function wheelCustomOptions(list) {
+export function wheelCustomOptions(list) {
   return (list || [])
     .map(v => String(v || "").trim())
     .filter(Boolean)
@@ -77,7 +77,7 @@ function wheelCustomOptions(list) {
    Блюдо годится, если каждый его ингредиент есть под рукой. Отдельно считаем «почти готовые» —
    те, где не хватает одного-двух продуктов: подсказка «купи молоко и сможешь three блюда»
    полезнее, чем пустой список. */
-function dishMissingIngredients(dish, have) {
+export function dishMissingIngredients(dish, have) {
   const ids = new Set(have || []);
   const need = Array.isArray(dish.ingredients) ? dish.ingredients : [];
   const missing = [];

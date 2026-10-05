@@ -1,15 +1,7 @@
 /* Тест капания прогресса библиотеки по объявленному максимуму.
-   Функции вырезаются из исходника, а не копируются — иначе тест разойдётся с кодом.
-   Вырезка общая (cut.js): она сама знает, в каком файле src/ лежит имя. */
-const { cutDecl } = require("./cut.js");
-
-const code = `
-  function clamp(v,min,max) { return Math.max(min, Math.min(max,v)); }
-  ${cutDecl("LIBRARY_PROGRESS_CAPS")}
-  ${cutDecl("clampLibraryProgress")}
-  return { clampLibraryProgress };
-`;
-const { clampLibraryProgress } = new Function(code)();
+   Функция берётся из самого модуля библиотеки, а не копируется — иначе тест разойдётся с кодом. */
+const path = require("path");
+const { clampLibraryProgress } = require(path.join(__dirname, "..", "src", "library", "constants.js"));
 
 let failed = 0;
 function eq(label, actual, expected) {

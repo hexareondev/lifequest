@@ -1,4 +1,9 @@
 const fs = require("fs");
+const os = require("os");
+const path = require("path");
+// Архивы для ручной проверки распаковщиком кладём во временную папку системы: в tests/ они
+// попадали в репозиторий при каждом коммите.
+const OUT = fs.mkdtempSync(path.join(os.tmpdir(), "questlife-zip-"));
 const E = require("./notes_env.js");
 const { eq, done } = E;
 
@@ -57,12 +62,12 @@ eq("CRC32 строки 'The quick brown fox jumps over the lazy dog'",
 /* --- Реальный архив: структура проверяется распаковщиком, а не глазами --- */
 const files = E.buildBranchFiles(state, null);
 const bytes = E.zipStore(files);
-fs.writeFileSync(__dirname + "/out_test.zip", Buffer.from(bytes));
+fs.writeFileSync(path.join(OUT, "out_test.zip"), Buffer.from(bytes));
 eq("архив начинается сигнатурой локального заголовка",
   [bytes[0], bytes[1], bytes[2], bytes[3]], [0x50, 0x4b, 0x03, 0x04]);
 eq("архив не пустой", bytes.length > 200, true);
 
 /* Пустой архив тоже обязан быть валидным: пустая ветка — штатный случай */
-fs.writeFileSync(__dirname + "/out_empty.zip", Buffer.from(E.zipStore([])));
+fs.writeFileSync(path.join(OUT, "out_empty.zip"), Buffer.from(E.zipStore([])));
 
 done();

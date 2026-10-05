@@ -19,11 +19,11 @@ import {
 import {
   LIBRARY_IMPACT, LIBRARY_KINDS, LIBRARY_KIND_ORDER, LIBRARY_SORT_COMMON, LIBRARY_SORT_EXTRA,
   LIBRARY_STATUS_COLOR, LIBRARY_STATUS_ORDER, libraryDisplayTitle, libraryItemTypeLabel,
-  librarySeriesSuffix, libraryStatusLabel, sortLibraryItems,
+  librarySeriesSuffix, libraryStatusLabel, sortLibraryItems, libraryPickerItem,
 } from "./constants.js";
 import { LibraryCover } from "./cover.jsx";
 import { pickerItemMatches } from "../notes/model.js";
-import { NotesList, libraryPickerItem } from "../notes/ui.jsx";
+import { NotesList } from "../notes/ui.jsx";
 import { ShareButtons, ShareExportModal, ShareImportModal } from "../share/ui.jsx";
 import {
   Button, Card, EmptyState, KebabMenu, Modal, ProgressBar, SectionHeader, StarRating,

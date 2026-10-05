@@ -145,3 +145,11 @@ export function sortLibraryItems(items, sortKey) {
     default: return arr.sort((a,b) => b.createdAt.localeCompare(a.createdAt));
   }
 }
+
+// В списке показываем отображаемое название (то же, что видно в самой Библиотеке), а настоящее —
+// мелкой строкой под ним. Переключателя «какое показать» нет намеренно: видны сразу оба, и не
+// приходится гадать, в каком режиме сейчас список.
+export function libraryPickerItem(item) {
+  const shown = libraryDisplayTitle(item);
+  return { id: item.id, name: shown, alt: shown === item.title ? null : item.title };
+}

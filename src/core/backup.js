@@ -7,12 +7,12 @@ import { daysBetween, todayStr } from "./basics.js";
 
    Бэкап при этом делается руками, то есть не делается вовсе: о нём просто не вспоминают. Отсюда
    напоминание — не назойливое, а по факту давности. */
-const BACKUP_REMIND_AFTER_DAYS = 10;
+export const BACKUP_REMIND_AFTER_DAYS = 10;
 
 // Отметка ставится в момент, когда бэкап ДЕЙСТВИТЕЛЬНО создан: файл скачан, текст скопирован,
 // отправка подтверждена. Открытие настроек или неудачная попытка отметкой не считаются — иначе
 // напоминание замолкало бы ровно тогда, когда бэкапа как раз и нет.
-function backupAgeDays(lastBackupAt, today) {
+export function backupAgeDays(lastBackupAt, today) {
   if (!lastBackupAt) return null;
   const days = daysBetween(lastBackupAt, today || todayStr());
   return isFinite(days) ? Math.max(0, days) : null;

@@ -14,6 +14,7 @@ import { fmtDateShort, fmtDateWithYear, fmtMoney } from "../core/format.js";
 import { levelFromXp } from "../core/xp.js";
 import {
   libraryDisplayTitle, libraryItemTypeLabel, libraryProgressOf, libraryStatusLabel,
+  libraryPickerItem,
 } from "../library/constants.js";
 import { LibraryCover } from "../library/cover.jsx";
 import {
@@ -40,7 +41,7 @@ import { pal } from "../ui/theme.js";
 
 // Рендер идёт в React-элементы, а НЕ через dangerouslySetInnerHTML. Разница принципиальная:
 // вставленный в заметку HTML при таком рендере физически не может исполниться.
-function InlineText({ text, onOpenTag, onOpenLink, embedState, navigate }) {
+export function InlineText({ text, onOpenTag, onOpenLink, embedState, navigate }) {
   const parts = parseInline(text);
   return (
     <>
@@ -81,7 +82,7 @@ const MD_HEADING_CLS = {
   6: "text-xs font-semibold uppercase tracking-wide text-zinc-500 mt-2",
 };
 
-function MarkdownView({ text, onToggleCheckbox, onOpenTag, onOpenLink, className, embedState, navigate, onConfigureEmbed }) {
+export function MarkdownView({ text, onToggleCheckbox, onOpenTag, onOpenLink, className, embedState, navigate, onConfigureEmbed }) {
   const blocks = parseMarkdown(text);
   if (!blocks.length) return <div className="text-sm text-zinc-600">Пусто.</div>;
   const inline = (t) => <InlineText text={t} onOpenTag={onOpenTag} onOpenLink={onOpenLink} embedState={embedState} navigate={navigate} />;
@@ -354,14 +355,6 @@ function NoteEmbedFieldsModal({ open, onClose, target, onApply }) {
       </div>
     </Modal>
   );
-}
-
-// В списке показываем отображаемое название (то же, что видно в самой Библиотеке), а настоящее —
-// мелкой строкой под ним. Переключателя «какое показать» нет намеренно: видны сразу оба, и не
-// приходится гадать, в каком режиме сейчас список.
-export function libraryPickerItem(item) {
-  const shown = libraryDisplayTitle(item);
-  return { id: item.id, name: shown, alt: shown === item.title ? null : item.title };
 }
 
 // Выбор объекта для вставки. Нужен ровно затем, чтобы не угадывать написание имени: список

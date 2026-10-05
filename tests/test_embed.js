@@ -1,12 +1,10 @@
 const E = require("./notes_env.js");
 const { eq, done } = E;
 
-/* --- Заглушка LIBRARY_KINDS в окружении обязана совпадать с настоящей таблицей --- */
-["book", "books", "game", "games", "movie", "movies"].forEach(() => {});
-eq("ключи книг в исходнике те же, что в заглушке теста",
-  /book:\s*\{\s*stateKey:\s*"books"/.test(E.rawSource), true);
-eq("ключи игр совпадают",   /game:\s*\{\s*stateKey:\s*"games"/.test(E.rawSource), true);
-eq("ключи фильмов совпадают", /movie:\s*\{\s*stateKey:\s*"movies"/.test(E.rawSource), true);
+/* --- Встраивания ищут записи по stateKey из LIBRARY_KINDS: ключи должны быть ровно такими --- */
+eq("книги лежат в state.books",  E.LIBRARY_KINDS.book.stateKey,  "books");
+eq("игры лежат в state.games",   E.LIBRARY_KINDS.game.stateKey,  "games");
+eq("фильмы лежат в state.movies", E.LIBRARY_KINDS.movie.stateKey, "movies");
 
 /* --- Разбор ссылки --- */
 eq("человек", E.parseEmbedRef("человек:Аня"), { kind: "person", ref: "Аня", fields: null, alias: "человек" });

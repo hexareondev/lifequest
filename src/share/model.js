@@ -110,7 +110,7 @@ export function shareSectionItems(sectionId, state) {
    items — ровно тем же приёмом, каким блюда возят с собой продукты.
 
    Ссылки внутри пакета — индексы, а не id: чужие id у получателя не значат ничего. */
-function expandShareSelection(sectionId, selected, state) {
+export function expandShareSelection(sectionId, selected, state) {
   const empty = { entries: selected, collections: [], membership: new Map() };
   if (sectionId !== "library") return empty;
   const picked = selected.filter(x => x.__collection).map(x => x.__collection);
