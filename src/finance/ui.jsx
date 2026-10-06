@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { clamp, daysBetween, todayStr } from "../core/basics.js";
-import { fmtDateShort, fmtMoney, monthKey, monthLabel } from "../core/format.js";
+import { fmtDateShort, fmtMoney, monthKey, monthLabel, monthName, monthNameGen } from "../core/format.js";
 import { categoryMeta } from "../core/lists.js";
 import { endOfWeekSunday, startOfWeekMonday } from "../core/week.js";
 import { activePeople } from "../people/model.js";
@@ -12,6 +12,7 @@ import {
 } from "../ui/atoms.jsx";
 import { EditableListRow } from "../ui/editable-list.jsx";
 import { MonthNav } from "../ui/month-nav.jsx";
+import { budgetChanges, budgetSummary } from "./budget.js";
 import { ColorPicker } from "../ui/pickers.jsx";
 import { PALETTE, pal } from "../ui/theme.js";
 import {
@@ -870,26 +871,115 @@ function TransactionForm({ categories, knownPersons, people, transactions, accou
   );
 }
 
-function BudgetRow({ category, limit, spent, onChange }) {
+// Строка бюджета. В прошедшем месяце — только просмотр: его лимиты зафиксированы историей.
+// change — пометка, что в этом месяце лимит категории изменился или она появилась.
+function BudgetRow({ category, limit, spent, onChange, onRemove, readOnly, change, color }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(limit || 0);
   const ratio = limit ? spent/limit : 0;
   const over = limit && spent > limit;
+  const c = pal(color);
   return (
     <div className="py-2.5">
       <div className="flex items-center justify-between mb-1.5 gap-2 flex-wrap">
-        <span className="text-sm text-zinc-300">{category}</span>
+        <span className="text-sm text-zinc-300 flex items-center gap-2 min-w-0">
+          <span className={`w-2 h-2 rounded-full shrink-0 ${c.bgSolid}`} />
+          <span className="truncate">{category}</span>
+          {change === "new" && <span className="text-[10px] font-data px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-300">новая</span>}
+          {change && change !== "new" && <span className="text-[10px] font-data px-1.5 py-0.5 rounded bg-sky-500/15 text-sky-300">было {fmtMoney(change.from)}</span>}
+        </span>
         {editing ? (
           <div className="flex items-center gap-1.5">
-            <input type="number" className="bg-zinc-950 border border-zinc-800 rounded-lg px-2 py-1 text-xs text-zinc-100" style={{ width:90 }} value={draft} onChange={e=>setDraft(e.target.value)} autoFocus />
-            <button onClick={() => { onChange(Number(draft)||0); setEditing(false); }} className="text-xs text-amber-400">OK</button>
+            <input type="number" min="0" className="bg-zinc-950 border border-zinc-800 rounded-lg px-2 py-1 text-xs text-zinc-100" style={{ width:90 }} value={draft}
+              onChange={e=>setDraft(e.target.value)} onKeyDown={e => { if (e.key==="Enter") { onChange(Math.max(0, Number(draft)||0)); setEditing(false); } }} autoFocus />
+            <button onClick={() => { onChange(Math.max(0, Number(draft)||0)); setEditing(false); }} className="text-xs text-amber-400">OK</button>
+            <button onClick={() => { onRemove(); setEditing(false); }} title="Убрать категорию из бюджета с этого месяца" className="text-zinc-600 hover:text-red-400"><Trash2 className="w-3.5 h-3.5"/></button>
           </div>
+        ) : readOnly ? (
+          <span className={`text-xs font-data ${over ? "text-red-400" : "text-zinc-500"}`}>{fmtMoney(spent)} / {limit ? fmtMoney(limit) : "—"}</span>
         ) : (
-          <button onClick={() => { setDraft(limit||0); setEditing(true); }} className={`text-xs font-data ${over ? "text-red-400" : "text-zinc-500"} hover:text-zinc-300`}>{fmtMoney(spent)} / {limit ? fmtMoney(limit) : "—"}</button>
+          <button onClick={() => { setDraft(limit||0); setEditing(true); }} className={`text-xs font-data ${over ? "text-red-400" : "text-zinc-500"} hover:text-zinc-300`}>{fmtMoney(spent)} / {limit ? fmtMoney(limit) : "задать"}</button>
         )}
       </div>
-      <ProgressBar value={limit ? ratio : 0} colorClass={over ? "bg-red-500" : "bg-amber-500"} heightClass="h-1.5" />
+      <ProgressBar value={limit ? Math.min(1, ratio) : 0} colorClass={over ? "bg-red-500" : "bg-amber-500"} heightClass="h-1.5" />
     </div>
+  );
+}
+
+// Бюджет месяца: отслеживаемые категории с лимитами, выбор категорий и итог. Правка в текущем или
+// будущем месяце действует с него и дальше; прошедшие месяцы — только просмотр (finance/budget.js).
+function BudgetCard({ state, actions, month }) {
+  const current = monthKey(todayStr());
+  const readOnly = month < current;
+  const [picking, setPicking] = useState(false);
+  const summary = useMemo(() => budgetSummary(state.budgetHistory, state.transactions, month), [state.budgetHistory, state.transactions, month]);
+  const prevMonth = useMemo(() => { const [y,m] = month.split("-").map(Number); const d = new Date(y, m-2, 1); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`; }, [month]);
+  const changes = useMemo(() => budgetChanges(state.budgetHistory, month, prevMonth), [state.budgetHistory, month, prevMonth]);
+  const changeOf = (cat) => changes.added.includes(cat) ? "new" : changes.changed.find(c => c.category===cat) || null;
+  const expenseCats = (state.categories.expense || []).filter(c => c.name !== TRANSFER_CATEGORY);
+  const tracked = new Set(summary.rows.map(r => r.category));
+  const colorOf = (name) => { const c = expenseCats.find(x => x.name===name); return c ? c.color : "zinc"; };
+  const left = summary.planned - summary.spentInBudget;
+
+  return (
+    <CollapsibleCard title={`Бюджет на ${monthName(month)}${month.slice(0,4) !== current.slice(0,4) ? ` ${month.slice(0,4)}` : ""}`}
+      headerExtra={readOnly
+        ? <span className="text-[10px] font-data uppercase tracking-wide text-zinc-500 flex items-center gap-1"><Archive className="w-3 h-3"/>архив</span>
+        // span, а не button: заголовок карточки сам кнопка, вложенная кнопка — недопустимая разметка.
+        : <span role="button" tabIndex={0} onClick={(e) => { e.stopPropagation(); setPicking(v => !v); }}
+            onKeyDown={(e) => { if (e.key==="Enter" || e.key===" ") { e.preventDefault(); e.stopPropagation(); setPicking(v => !v); } }}
+            className={`text-xs flex items-center gap-1 cursor-pointer ${picking ? "text-amber-300" : "text-zinc-500 hover:text-zinc-300"}`}><Sliders className="w-3.5 h-3.5"/>Категории</span>}>
+      {picking && !readOnly && (
+        <div className="mb-3 p-3 rounded-xl border border-zinc-800 bg-zinc-950/40">
+          <div className="text-[11px] text-zinc-500 mb-2">Что отслеживать в бюджете — с {monthNameGen(month)} и дальше. Прошлые месяцы не изменятся.</div>
+          <div className="flex flex-wrap gap-1.5">
+            {expenseCats.map(cat => {
+              const on = tracked.has(cat.name);
+              const c = pal(cat.color);
+              return (
+                <button key={cat.name} onClick={() => actions.setBudget(cat.name, on ? null : 0, month)}
+                  className={`px-2.5 py-1 rounded-lg border text-xs flex items-center gap-1.5 transition ${on ? `${c.border} ${c.bgSoft} text-zinc-100` : "border-zinc-800 text-zinc-500 hover:text-zinc-300"}`}>
+                  {on ? <Check className="w-3 h-3"/> : <Plus className="w-3 h-3"/>}{cat.name}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+      {summary.rows.length === 0 ? (
+        <div className="text-sm text-zinc-500 py-2">{readOnly ? "В этом месяце бюджета не было." : "Бюджет не задан — выбери категории, которые хочешь отслеживать."}</div>
+      ) : (
+        <div className="divide-y divide-zinc-800">
+          {summary.rows.map(r => (
+            <BudgetRow key={r.category + month} category={r.category} limit={r.limit} spent={r.spent} color={colorOf(r.category)}
+              readOnly={readOnly} change={changeOf(r.category)}
+              onChange={(v) => actions.setBudget(r.category, v, month)} onRemove={() => actions.setBudget(r.category, null, month)} />
+          ))}
+        </div>
+      )}
+      {changes.removed.length > 0 && (
+        <div className="text-[11px] text-zinc-500 mt-2">С этого месяца не отслеживается: {changes.removed.join(", ")}.</div>
+      )}
+      <div className="mt-3 pt-3 border-t border-zinc-800 space-y-1.5">
+        <div className="flex items-baseline justify-between text-sm">
+          <span className="text-zinc-400">Распланировано</span><span className="font-data text-zinc-100">{fmtMoney(summary.planned)}</span>
+        </div>
+        <div className="flex items-baseline justify-between text-sm">
+          <span className="text-zinc-400">Потрачено по бюджету</span>
+          <span className={`font-data ${summary.planned && summary.spentInBudget > summary.planned ? "text-red-400" : "text-zinc-100"}`}>{fmtMoney(summary.spentInBudget)}</span>
+        </div>
+        {summary.planned > 0 && <ProgressBar value={Math.min(1, summary.spentInBudget / summary.planned)} colorClass={summary.spentInBudget > summary.planned ? "bg-red-500" : "bg-emerald-500"} heightClass="h-1.5" />}
+        <div className="flex items-baseline justify-between text-xs">
+          <span className="text-zinc-500">{left >= 0 ? "Осталось" : "Перерасход"}</span>
+          <span className={`font-data ${left >= 0 ? "text-emerald-400" : "text-red-400"}`}>{fmtMoney(Math.abs(left))}</span>
+        </div>
+        <div className="flex items-baseline justify-between text-xs">
+          <span className="text-zinc-500">Всего расходов за месяц{summary.outside > 0 ? `, из них вне бюджета ${fmtMoney(summary.outside)}` : ""}</span>
+          <span className="font-data text-zinc-300">{fmtMoney(summary.totalExpense)}</span>
+        </div>
+      </div>
+      {!readOnly && <div className="text-[11px] text-zinc-600 mt-3">Изменения действуют с {monthNameGen(month)} и дальше. Прошедшие месяцы не меняются.</div>}
+    </CollapsibleCard>
   );
 }
 
@@ -1395,11 +1485,6 @@ export function FinanceView({ state, actions, navigate }) {
   // balanceEffectOf по всем операциям; для сохранений, прошедших миграцию, результат тот же, но
   // теперь счёт, снятый с отслеживания, корректно выпадает из итога (и появляется разбивка).
   const allTimeBalance = useMemo(() => accountsTotal(state, "regular"), [state.transactions, state.accounts]);
-  const spentByCategory = useMemo(() => {
-    const map = {};
-    monthTx.filter(t=>t.type==="expense").forEach(t => { map[t.category] = (map[t.category]||0) + t.amount; });
-    return map;
-  }, [monthTx]);
   const knownPersons = useMemo(() => {
     const set = new Set();
     state.transactions.forEach(t => { if (t.type==="debt" && t.person) set.add(t.person); });
@@ -1467,13 +1552,7 @@ export function FinanceView({ state, actions, navigate }) {
       </CollapsibleCard>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 items-start">
-        <CollapsibleCard title={`Бюджеты на ${monthLabel(month).toLowerCase()}`}>
-          <div className="divide-y divide-zinc-800">
-            {Object.keys(state.budgets).map(cat => (
-              <BudgetRow key={cat} category={cat} limit={state.budgets[cat]} spent={spentByCategory[cat]||0} onChange={(v) => actions.setBudget(cat, v)} />
-            ))}
-          </div>
-        </CollapsibleCard>
+        <BudgetCard state={state} actions={actions} month={month} />
         <DebtsCard state={state} onQuickRepay={openQuickRepay} navigate={navigate} />
       </div>
 

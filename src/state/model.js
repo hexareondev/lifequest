@@ -14,11 +14,13 @@ import {
 } from "../core/prefs.js";
 import { TABS } from "../core/tabs.js";
 import { defaultAccounts, defaultFinanceTableFields } from "../finance/model.js";
+import { BUDGET_SINCE_START, normalizeBudgetHistory } from "../finance/budget.js";
 import { defaultLogRewards } from "../habits/model.js";
 import { defaultMiscPrefs } from "../misc/model.js";
 import { defaultNotesPrefs } from "../notes/model.js";
 import { defaultNutritionGoal } from "../nutrition/model.js";
 import { defaultPeopleCardFields, defaultPeopleRelations } from "../people/model.js";
+import { withDemoReportHistory } from "../reports/demo.js";
 import { CAMPAIGN_DEFAULT_PERCENT, defaultCampaignReward } from "../quests/campaigns.js";
 import { questPersonIds, questSphereIds } from "../quests/links.js";
 import { normalizeQuestDates } from "../quests/spans.js";
@@ -97,7 +99,9 @@ export function normalizeState(raw) {
       }
       return migrated;
     }),
-    budgets: raw.budgets && typeof raw.budgets==="object" ? raw.budgets : base.budgets,
+    // Бюджет с историей планов (finance/budget.js). Старый единый набор «категория → сумма»
+    // становится одним планом «с самого начала» — прошлые месяцы видят те же лимиты, что и раньше.
+    budgetHistory: normalizeBudgetHistory(raw) || base.budgetHistory,
     rewards: Array.isArray(raw.rewards) ? raw.rewards : base.rewards,
     achievements: Array.isArray(raw.achievements) && raw.achievements.length ? raw.achievements : defaultAchievements(),
     // people — новое поле: у старых сохранений/выгрузок его никогда не было, поэтому в отличие от
@@ -144,6 +148,9 @@ export function normalizeState(raw) {
     // (нужен для дневной разбивки авто-привычки чтения с переносом излишка вперёд).
     readingLog: Array.isArray(raw.readingLog) ? raw.readingLog : [],
     lastBackupAt: raw.lastBackupAt || null,
+    // Открытые боевые отчёты: без этого поля уведомление и вскрытие отчёта повторялись бы после
+    // каждой перезагрузки страницы.
+    reportsSeen: Array.isArray(raw.reportsSeen) ? raw.reportsSeen.filter(x => typeof x === "string") : [],
     // Заметки и дерево папок — личные данные, значит фолбэк на пустоту, а не на демо-набор
     // (тот же принцип, что у людей и книг). Инварианты дерева здесь не чиним: битый parentId
     // обходится защитой по числу витков в folderPathOf, а не переписыванием чужих данных.
@@ -203,7 +210,13 @@ export function normalizeState(raw) {
 
 /* ============================== SEED DATA ============================== */
 
+// Демо-данные первого запуска и кнопки «Заполнить демо-данными». История за два прошлых месяца
+// дописывается отдельно (reports/demo.js) — чтобы в демо сразу были видны боевые отчёты.
 export function defaultState() {
+  return withDemoReportHistory(demoState(), todayStr());
+}
+
+function demoState() {
   return {
     profile: { name: "Путник", currency: 165, avatarIcon: "Star", avatarImage: null,
       body: { ...defaultBody(), sex:"male", height:178, weight:76.9, level:"regular", focus:"health", equipment:["dumbbells","pullupBar"], trainingDays:[1,3,5] } },
@@ -276,7 +289,7 @@ export function defaultState() {
       { id:uid(), type:"expense", personId:"p1", person:"Настя", via:"Настя", amount:1500, category:"Люди", date:addDaysStr(-6), description:"Скинулись на подарок" },
       { id:uid(), type:"income",  personId:"p2", person:"Мама",  via:"Мама",  amount:2000, category:"Люди", date:addDaysStr(-3), description:"Вернула за продукты" },
     ],
-    budgets: { "Еда":28000, "Транспорт":6000, "Развлечения":9000, "Подписки":3000, "Жильё":33000 },
+    budgetHistory: [{ from: BUDGET_SINCE_START, limits: { "Еда":28000, "Транспорт":6000, "Развлечения":9000, "Подписки":3000, "Жильё":33000 } }],
     rewards: [
       { id:uid(), title:"Вечер кино дома", cost:30,  repeatable:true,  purchases:[addDaysStr(-6)] },
       { id:uid(), title:"Новая игра",      cost:120, repeatable:false, purchases:[] },
@@ -371,6 +384,8 @@ export function defaultState() {
       { id:"nt-week", title:"Черновик недели", folderId:"nf-ideas", pinned:false, createdAt: addDaysStr(-3), updatedAt: addDaysStr(-3),
         body:"Мысли, которые ещё не оформились. #идеи\n\n- посмотреть, что съедает вечера\n- вынести повторяющиеся дела в кампанию" },
     ],
+    // Какие боевые отчёты уже открыты — уведомление на Хабе приходит один раз (см. reports/model.js).
+    reportsSeen: [],
     libraryCollections: [],
     readingLog: [
       { id:uid(), bookId:"b1", date:addDaysStr(-3), pages:20 },
@@ -438,7 +453,9 @@ export function cleanState() {
     habits: seed.habits.map(h => ({ id: h.id, title: h.title, sphereId: h.sphereId, personId: h.personId || null, personName: h.personName || null, logs: [], claimedDates: [] })),
     accounts: defaultAccounts(),
     transactions: [],
-    budgets: seed.budgets,
+    // План бюджета — структурный пример, как категории: при сбросе остаётся, но «с самого начала»,
+    // без истории изменений из демо.
+    budgetHistory: [{ from: BUDGET_SINCE_START, limits: { ...seed.budgetHistory[seed.budgetHistory.length - 1].limits } }],
     rewards: seed.rewards.map(r => ({ ...r, purchases: [] })),
     achievements: defaultAchievements(),
     // Люди при "Сбросить всё" очищаются полностью (не как структурные примеры у привычек/наград):
@@ -461,6 +478,7 @@ export function cleanState() {
     nutritionGoal: defaultNutritionGoal(),
     libraryCollections: [],
     readingLog: [],
+    reportsSeen: [],
     // Заметки — личные данные: при осознанном сбросе очищаются полностью, как люди и библиотека.
     notes: [],
     noteFolders: [],

@@ -7,6 +7,7 @@
 
 import { todayStr, uid } from "../core/basics.js";
 import { insertAt, insertBeforeOther, moveInEditableList } from "../core/lists.js";
+import { budgetPlanFor, setBudgetFrom } from "./budget.js";
 import { defaultFinanceTableFields } from "./model.js";
 import { toastIcon } from "../ui/toast-icon.js";
 import { Shield, Trash2, Wallet } from "lucide-react";
@@ -87,7 +88,26 @@ export function financeActions({ setState, commit, pushToast }) {
         return { ...prev, transactions: prev.transactions.filter(t => t.id!==id) };
       });
     },
-    setBudget(category, amount) { setState(prev => ({ ...prev, budgets: { ...prev.budgets, [category]: amount } })); },
+    // Лимит категории (amount — число) или снятие категории с бюджета (amount === null) с месяца ym
+    // и дальше. Прошедшие месяцы не меняются никогда: их итоги считаются по тем лимитам, что
+    // действовали тогда (см. finance/budget.js).
+    // Снятие категории стирает её лимит — его легко потерять лишним кликом, поэтому с откатом.
+    setBudget(category, amount, ym) {
+      const current = todayStr().slice(0, 7);
+      if (!ym || ym < current) return;
+      if (amount !== null) {
+        setState(prev => ({ ...prev, budgetHistory: setBudgetFrom(prev.budgetHistory, ym, category, amount) }));
+        return;
+      }
+      commit((prev, defer) => {
+        const limits = budgetPlanFor(prev.budgetHistory, ym).limits;
+        if (!(category in limits)) return prev;
+        const was = limits[category];
+        defer(() => pushToast(`«${category}» убрана из бюджета`, toastIcon(Trash2, "text-zinc-400"),
+          () => setState(p2 => ({ ...p2, budgetHistory: setBudgetFrom(p2.budgetHistory, ym, category, was) }))));
+        return { ...prev, budgetHistory: setBudgetFrom(prev.budgetHistory, ym, category, null) };
+      });
+    },
 
     addCategory(type, cat) {
       setState(prev => {

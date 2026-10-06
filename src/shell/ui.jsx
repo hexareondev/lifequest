@@ -66,7 +66,7 @@ export function Sidebar({ tab, onNavigate, open, onClose, state, onOpenSettings 
 }
 
 export function TopBar({ tab, onMenu, state }) {
-  const titles = { hub:"Хаб", quests:"Квесты", habits:"Ежедневные привычки", spheres:"Сферы жизни", people:"Люди", library:"Библиотека", nutrition:"Питание", finance:"Финансы", rewards:"Награды", achievements:"Достижения" };
+  const titles = { hub:"Хаб", quests:"Квесты", habits:"Ежедневные привычки", spheres:"Сферы жизни", people:"Люди", library:"Библиотека", nutrition:"Питание", finance:"Финансы", rewards:"Награды", achievements:"Достижения", reports:"Отчёты" };
   return (
     <div className="sticky top-0 backdrop-blur bg-zinc-950/80 border-b border-zinc-800 px-4 md:px-8 py-4 flex items-center gap-4" style={{ zIndex:30 }}>
       <button onClick={onMenu} className="md:hidden text-zinc-400 hover:text-zinc-100"><Menu className="w-5 h-5"/></button>

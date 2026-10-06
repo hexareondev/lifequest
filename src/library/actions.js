@@ -36,7 +36,12 @@ export function libraryActions({ setState, commit, pushToast, setLevelUp }) {
         // для "dropped" тоже: иначе глазик у брошенного скрыт, а слот из пятёрки отслеживаемых
         // так и останется занят без возможности его освободить. Единая точка входа — работает
         // одинаково что через выпадающий статус, что через кнопку "Завершить".
-        const finalPatch2 = ((finalPatch.status==="done" || finalPatch.status==="dropped") && item && item.tracked) ? { ...finalPatch, tracked:false } : finalPatch;
+        let finalPatch2 = ((finalPatch.status==="done" || finalPatch.status==="dropped") && item && item.tracked) ? { ...finalPatch, tracked:false } : finalPatch;
+        // Дата завершения — для отчёта за месяц: ставится при переходе в «завершено» и снимается при
+        // уходе из него. Тот же принцип, что у completedAt квеста.
+        if (item && finalPatch2.status && finalPatch2.status !== item.status) {
+          finalPatch2 = { ...finalPatch2, completedAt: finalPatch2.status==="done" ? d : null };
+        }
         let readingLog = prev.readingLog;
         // Книга с активной целью по чтению + меняется pagesRead — попутно логируем дельту на
         // сегодня (нужно для дневной разбивки авто-цели чтения). Единая точка входа: что бы ни
@@ -120,12 +125,12 @@ export function libraryActions({ setState, commit, pushToast, setLevelUp }) {
     // даёт, во избежание повторного начисления при ручном туда-сюда). Тот же паттерн полного
     // отменяемого начисления, что и у completeQuest.
     completeLibraryItem(kind, id) {
-      const key = LIBRARY_KINDS[kind].stateKey;
+      const key = LIBRARY_KINDS[kind].stateKey, today = todayStr();
       commit((prev, defer) => {
         const item = prev[key].find(x => x.id===id);
         if (!item || item.status==="done") return prev;
         const prevStatus = item.status;
-        const prevTracked = !!item.tracked;
+        const prevTracked = !!item.tracked, prevCompletedAt = item.completedAt || null;
         const prevLevel = overallOf(prev).level;
         const rewardXp = item.rewardXp||0, sphereId = item.sphereId;
         const spheres = sphereId ? prev.spheres.map(s => s.id===sphereId ? { ...s, xp: s.xp + rewardXp } : s) : prev.spheres;
@@ -134,14 +139,14 @@ export function libraryActions({ setState, commit, pushToast, setLevelUp }) {
           pushToast(rewardXp ? `Отмечено как завершённое: +${rewardXp} XP` : "Отмечено как завершённое", toastIcon(Trophy, "text-amber-400"), () => {
             setState(p2 => ({
               ...p2,
-              [key]: p2[key].map(x => x.id===id ? { ...x, status: prevStatus, tracked: prevTracked } : x),
+              [key]: p2[key].map(x => x.id===id ? { ...x, status: prevStatus, tracked: prevTracked, completedAt: prevCompletedAt } : x),
               spheres: sphereId ? p2.spheres.map(s => s.id===sphereId ? { ...s, xp: Math.max(0, s.xp-rewardXp) } : s) : p2.spheres,
             }));
           });
           if (newLevel > prevLevel) setLevelUp(newLevel);
         });
         // Просмотрено/прочитано/пройдено больше не "сейчас отслеживаю" — снимаем автоматически.
-        return { ...prev, [key]: prev[key].map(x => x.id===id ? { ...x, status:"done", tracked:false } : x), spheres };
+        return { ...prev, [key]: prev[key].map(x => x.id===id ? { ...x, status:"done", tracked:false, completedAt: today } : x), spheres };
       });
     },
 

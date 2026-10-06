@@ -2,7 +2,7 @@
 // всегда виден — иначе было бы некуда вернуться.
 
 import {
-  Award, BookOpen, Calendar, CheckSquare, Compass, Dumbbell, FileText, Gem, LayoutGrid, ScrollText,
+  Award, BookOpen, Calendar, CheckSquare, Compass, Dumbbell, FileText, Gem, LayoutGrid, Medal, ScrollText,
   Shield, Shuffle, Users, Utensils, Wallet,
 } from "lucide-react";
 
@@ -22,6 +22,7 @@ export const TABS = [
   { id:"finance",      label:"Финансы",     icon:Wallet },
   { id:"rewards",      label:"Награды",     icon:Gem },
   { id:"achievements", label:"Достижения",  icon:Award },
+  { id:"reports",      label:"Отчёты",      icon:Medal },
 ];
 // Хаб всегда первый и всегда виден (иначе некуда возвращаться) — не участвует в перестановке
 // и скрытии. Остальные вкладки — порядок и видимость настраиваются в Настройки → Меню и

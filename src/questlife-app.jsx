@@ -1,5 +1,7 @@
-import React, { Suspense, lazy, useState, useEffect, useRef } from "react";
+import React, { Suspense, lazy, useState, useEffect, useMemo, useRef } from "react";
 import { financeActions } from "./finance/actions.js";
+import { reportActions } from "./reports/actions.js";
+import { pendingReport, reportMonthWord } from "./reports/model.js";
 import { calendarActions } from "./calendar/actions.js";
 import { shareActions } from "./share/actions.js";
 import { questActions } from "./quests/actions.js";
@@ -13,7 +15,7 @@ import { settingsActions } from "./settings/actions.js";
 import { peopleActions } from "./people/actions.js";
 import { notesActions } from "./notes/actions.js";
 import { nutritionActions } from "./nutrition/actions.js";
-import { Flame, Sparkles, Check, AlertCircle } from "lucide-react";
+import { Flame, Sparkles, Check, AlertCircle, Medal } from "lucide-react";
 import { todayStr, uid } from "./core/basics.js";
 import { pluralRu } from "./core/format.js";
 import { levelFromXp, overallOf } from "./core/xp.js";
@@ -54,6 +56,7 @@ const SportView = lazyView(() => import("./sport/ui.jsx"), "SportView");
 const ProfileView = lazyView(() => import("./profile/ui.jsx"), "ProfileView");
 const FinanceView = lazyView(() => import("./finance/ui.jsx"), "FinanceView");
 const RewardsView = lazyView(() => import("./rewards/ui.jsx"), "RewardsView");
+const ReportsView = lazyView(() => import("./reports/ui.jsx"), "ReportsView");
 
 /* =================================== APP =================================== */
 
@@ -62,6 +65,7 @@ export default function App() {
   const [loaded, setLoaded] = useState(false);
   const [tab, setTab] = useState("hub");
   const [sphereFocus, setSphereFocus] = useState(null);
+  const [reportFocus, setReportFocus] = useState(null);
   const [peopleFocus, setPeopleFocus] = useState(null);
   const [libraryFocus, setLibraryFocus] = useState(null);
   const [notesFocus, setNotesFocus] = useState(null);
@@ -77,6 +81,8 @@ export default function App() {
   const [navOpen, setNavOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const backupReminder = backupReminderState(state && state.lastBackupAt, todayStr());
+  // Отчёт считается из всех журналов — только на Хабе и только когда меняется состояние.
+  const reportNotice = useMemo(() => (state && tab === "hub" ? pendingReport(state, todayStr()) : null), [state, tab]);
 
   useEffect(() => {
     let cancelled = false;
@@ -282,12 +288,17 @@ export default function App() {
     setTimeout(() => setToasts(ts => ts.filter(t=>t.id!==id)), undo ? 6000 : 3200);
   }
 
+  // Откат вызывается СНАРУЖИ функции обновления: раньше он стоял внутри setToasts(ts => …), и
+  // StrictMode в разработке прогонял её дважды — откат применялся дважды (золото списывалось
+  // вдвое). undoneRef — от двойного нажатия «Отменить», пока тост ещё не исчез.
+  const undoneRef = useRef(new Set());
   function handleUndo(id) {
-    setToasts(ts => {
-      const t = ts.find(x => x.id===id);
-      if (t && t.undo) t.undo();
-      return ts.filter(x => x.id!==id);
-    });
+    if (undoneRef.current.has(id)) return;
+    const t = toasts.find(x => x.id===id);
+    if (!t) return;
+    undoneRef.current.add(id);
+    if (t.undo) t.undo();
+    setToasts(ts => ts.filter(x => x.id!==id));
   }
 
   function navigate(nextTab, focus) {
@@ -297,6 +308,7 @@ export default function App() {
       else if (nextTab === "people") setPeopleFocus(focus);
       else if (nextTab === "library") setLibraryFocus(focus);
       else if (nextTab === "notes") setNotesFocus(focus);
+      else if (nextTab === "reports") setReportFocus(focus);
     }
     setNavOpen(false);
   }
@@ -319,6 +331,7 @@ export default function App() {
     ...profileActions({ setState, commit, pushToast }),
     ...settingsActions({ setState, commit, pushToast }),
     ...shareActions({ setState, commit, pushToast }),
+    ...reportActions({ setState }),
 
     // Простое уведомление без отката — для мест, где действие происходит вне состояния
     // (скачивание файла, копирование в буфер), но человеку нужно подтверждение, что оно прошло.
@@ -372,6 +385,23 @@ export default function App() {
                 <span className="text-xs text-amber-300 shrink-0">Сделать</span>
               </button>
             )}
+            {/* Боевой отчёт за прошлый месяц — один раз, пока его не открыли. */}
+            {tab==="hub" && reportNotice && (
+              <button onClick={() => navigate("reports", reportNotice.ym)}
+                className="w-full mb-4 flex items-center gap-3 p-3 rounded-xl border border-amber-500/40 text-left hover:border-amber-400/70 transition"
+                style={{ background:"linear-gradient(90deg, rgba(245,158,11,0.14), rgba(99,102,241,0.06))" }}>
+                <div className="w-10 h-10 rounded-full flex items-center justify-center shrink-0" style={{ border:"2px solid #f59e0b", boxShadow:"0 0 16px rgba(245,158,11,0.35)" }}>
+                  <Medal className="w-5 h-5 text-amber-300" />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <div className="text-sm text-amber-100 font-semibold">Боевой отчёт за {reportMonthWord(reportNotice.ym)} готов</div>
+                  <div className="text-[11px] text-zinc-400">
+                    {reportNotice.medals ? `${reportNotice.medals} ${pluralRu(reportNotice.medals, "медаль", "медали", "медалей")} · ` : ""}итоги месяца и сравнение с прошлым
+                  </div>
+                </div>
+                <span className="text-xs text-amber-300 shrink-0">Открыть</span>
+              </button>
+            )}
             {tab==="hub" && <HubView state={state} actions={actions} navigate={navigate} />}
             <Suspense fallback={<div className="py-16 text-center text-sm text-zinc-600">Загрузка раздела…</div>}>
             {tab==="calendar" && <CalendarView state={state} actions={actions} navigate={navigate} />}
@@ -387,6 +417,7 @@ export default function App() {
             {tab==="profile" && <ProfileView state={state} actions={actions} navigate={navigate} />}
             {tab==="finance" && <FinanceView state={state} actions={actions} navigate={navigate} />}
             {tab==="rewards" && <RewardsView state={state} actions={actions} />}
+            {tab==="reports" && <ReportsView state={state} actions={actions} focus={reportFocus} setFocus={setReportFocus} />}
             </Suspense>
             {tab==="achievements" && <AchievementsView state={state} actions={actions} />}
           </main>

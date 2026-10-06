@@ -3,8 +3,10 @@
 import { achievementProgress } from "./achievements.js";
 import { useEffect, useMemo, useState } from "react";
 import {
-  Award, Cake, ChevronDown, Coins, Dumbbell, Flag, Flame, Pencil, Smile, Star, TrendingUp, Trophy,
+  Award, Cake, ChevronDown, Coins, Dumbbell, Flag, Flame, Lock, Medal, Pencil, Smile, Star, TrendingUp,
+  Trophy,
 } from "lucide-react";
+import { todayStr } from "../core/basics.js";
 import { fmtDateShort } from "../core/format.js";
 import { imagePosStyle } from "../core/images.js";
 import { levelFromXp, overallOf } from "../core/xp.js";
@@ -15,6 +17,8 @@ import {
 import {
   Button, Card, Modal, ProgressBar, SectionHeader, StickyAddButton, inputCls, labelCls,
 } from "../ui/atoms.jsx";
+import { MedalCard } from "../reports/medal.jsx";
+import { profileMedals, reportMonthWord } from "../reports/model.js";
 import { IconFor, PEOPLE_ICONS } from "../ui/icons.js";
 import { CoverPickerModal } from "../ui/pickers.jsx";
 import { pal } from "../ui/theme.js";
@@ -143,6 +147,8 @@ export function ProfileView({ state, actions, navigate }) {
         )}
       </div>
 
+      <MonthMedalsCard state={state} navigate={navigate} />
+
       {/* Досье: постоянные данные о человеке. Вес показан справочно — меняется он в «Спорте»,
           где для этого есть журнал замеров и график. */}
       <Card className="p-5">
@@ -180,6 +186,43 @@ export function ProfileView({ state, actions, navigate }) {
       <ProfileEditModal open={editOpen} onClose={() => setEditOpen(false)} state={state} actions={actions} />
       <StickyAddButton onClick={() => setEditOpen(true)} label="Редактировать" icon={Pencil} />
     </div>
+  );
+}
+
+// Лучшие медали прошлого месяца из боевого отчёта. Пока отчёт не открыт, медали не показываются —
+// только приглашение открыть его: вскрытие отчёта должно остаться сюрпризом.
+function MonthMedalsCard({ state, navigate }) {
+  const today = todayStr();
+  const data = useMemo(() => profileMedals(state, today), [state, today]);
+  if (!data) return null;
+  const word = reportMonthWord(data.ym);
+  return (
+    <Card className="p-5">
+      <div className="flex items-center justify-between mb-3">
+        <div className="text-sm font-semibold text-zinc-200 flex items-center gap-2"><Medal className="w-4 h-4 text-amber-400"/>Медали за {word}</div>
+        <button onClick={() => navigate("reports", data.ym)} className="text-xs text-amber-400 hover:text-amber-300 font-medium">
+          {data.seen ? "Весь отчёт →" : "Открыть отчёт →"}
+        </button>
+      </div>
+      {!data.seen ? (
+        <button onClick={() => navigate("reports", data.ym)}
+          className="w-full flex items-center gap-3 p-3 rounded-xl border border-amber-500/30 bg-amber-500/5 text-left hover:border-amber-400/60 transition">
+          <Lock className="w-4 h-4 text-amber-300 shrink-0"/>
+          <span className="text-sm text-zinc-300">Боевой отчёт за {word} ещё не открыт — медали появятся здесь, когда откроешь его.</span>
+        </button>
+      ) : data.medals.length === 0 ? (
+        <div className="text-sm text-zinc-500">Прошлый месяц — без медалей. Звёзды даются за рост относительно своих прошлых месяцев.</div>
+      ) : (
+        <>
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2">
+            {data.medals.map(m => <MedalCard key={m.id} medal={m} compact />)}
+          </div>
+          {data.total > data.medals.length && (
+            <div className="text-xs text-zinc-600 mt-2">И ещё {data.total - data.medals.length} — в отчёте.</div>
+          )}
+        </>
+      )}
+    </Card>
   );
 }
 
