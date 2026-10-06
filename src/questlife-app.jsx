@@ -1,9 +1,12 @@
 import React, { Suspense, lazy, useState, useEffect, useRef } from "react";
 import { financeActions } from "./finance/actions.js";
+import { peopleActions } from "./people/actions.js";
+import { notesActions } from "./notes/actions.js";
+import { nutritionActions } from "./nutrition/actions.js";
 import {
-  ScrollText, CheckSquare, Gem, X, Trash2, Pencil, Flame, Trophy, Coins, Sparkles, Shield, Users,
-  BookOpen, TrendingUp, Check, Target, AlertCircle, Award, ListPlus, Archive, Dumbbell, EyeOff,
-  Upload, Flag, Rocket, FolderPlus, Layers,
+  ScrollText, CheckSquare, Gem, X, Trash2, Flame, Trophy, Coins, Sparkles, Shield, BookOpen,
+  TrendingUp, Check, Target, AlertCircle, Award, ListPlus, Archive, Dumbbell, EyeOff, Upload, Flag,
+  Rocket, Layers,
 } from "lucide-react";
 import { todayStr, uid } from "./core/basics.js";
 import { questSphereIds, questPersonIds, questTouchesSphere, normalizeQuestLinks } from "./quests/links.js";
@@ -21,7 +24,7 @@ import { CampaignDoneModal } from "./quests/campaign-done.jsx";
 import { SettingsModal } from "./settings/ui.jsx";
 import {
   computeLogRewardSettlement, computeSyncedBirthdayQuests, computeSyncedHabits, defaultLogRewards,
-  extractActiveBirthdayQuest, isReadingGoalActiveOn,
+  isReadingGoalActiveOn,
 } from "./habits/model.js";
 import {
   HOLIDAYS, SUBTASK_PERSON_XP, computeSyncedHolidayQuests, extractActiveHolidayQuest,
@@ -30,7 +33,7 @@ import {
   applyCampaignSettlement, campaignStats, defaultCampaignReward, revertCampaignSettlement,
   settleCampaigns,
 } from "./quests/campaigns.js";
-import { insertAt, moveInEditableList } from "./core/lists.js";
+import { insertAt } from "./core/lists.js";
 import {
   applyPlanSettlement, defaultBody, defaultSet, defaultSportGoal, latestBodyMeasure,
   revertPlanSettlement, workoutSetStats,
@@ -40,11 +43,8 @@ import {
   defaultApiKeys, defaultCalendarPrefs, defaultLibraryPrefs, defaultLibrarySources,
   defaultPeopleDetailPrefs, defaultQuestsPrefs,
 } from "./core/prefs.js";
-import {
-  WATER_INGREDIENT_ID, defaultNutritionGoal, nutritionFromGrams, per100Of,
-} from "./nutrition/model.js";
+import { WATER_INGREDIENT_ID } from "./nutrition/model.js";
 import { defaultEmojiPools, defaultEmojiAssignments } from "./ui/emoji-pools.js";
-import { defaultPeopleCardFields } from "./people/model.js";
 import {
   LIBRARY_KINDS, LIBRARY_KIND_ORDER, libraryStatusLabel, libraryDisplayTitle, clampLibraryProgress,
 } from "./library/constants.js";
@@ -53,7 +53,6 @@ import {
   addToBranchPatches,
 } from "./library/collections.js";
 import { defaultMiscPrefs } from "./misc/model.js";
-import { defaultNotesPrefs, folderBranchIds, canMoveFolder } from "./notes/model.js";
 import { GlobalStyles, ToastStack } from "./ui/atoms.jsx";
 
 // Комментарии внутри самого списка импорта недопустимы — их не переваривает загрузчик
@@ -324,6 +323,9 @@ export default function App() {
   }
 
   const actions = {
+    ...peopleActions({ setState, commit, pushToast }),
+    ...notesActions({ setState, commit, pushToast }),
+    ...nutritionActions({ setState, commit, pushToast }),
     ...financeActions({ setState, commit, pushToast }),
     // Простое уведомление без отката — для мест, где действие происходит вне состояния
     // (скачивание файла, копирование в буфер), но человеку нужно подтверждение, что оно прошло.
@@ -955,143 +957,6 @@ export default function App() {
       });
     },
 
-    addPerson(p) {
-      setState(prev => {
-        const activeCount = (prev.people||[]).filter(x=>!x.archived).length;
-        return { ...prev, people: [{ id:uid(), xp:0, archived:false, archivedAt:null, order:activeCount, createdAt:todayStr(), trackBirthday:false, birthdayQuestYears:[], ...p }, ...(prev.people||[])] };
-      });
-      pushToast("Карточка человека создана", <Users className="w-4 h-4 text-amber-400"/>);
-    },
-    updatePerson(id, patch) { setState(prev => ({ ...prev, people: (prev.people||[]).map(p => p.id===id ? { ...p, ...patch } : p) })); },
-    // Единый экшен на перетаскивание и на стрелки вверх/вниз в списке активных людей — тот же
-    // паттерн, что у категорий/типов отношений. Архив сортируется отдельно, по дате переноса,
-    // и этим экшеном не пользуется.
-    reorderPerson(fromId, toId) {
-      setState(prev => {
-        const active = (prev.people||[]).filter(p=>!p.archived).sort((a,b)=>(a.order??0)-(b.order??0));
-        const fromIdx = active.findIndex(p=>p.id===fromId);
-        const toIdx = active.findIndex(p=>p.id===toId);
-        if (fromIdx<0 || toIdx<0 || fromIdx===toIdx) return prev;
-        const reordered = active.slice();
-        const [item] = reordered.splice(fromIdx, 1);
-        reordered.splice(toIdx, 0, item);
-        const orderOf = {};
-        reordered.forEach((p,i) => { orderOf[p.id] = i; });
-        return { ...prev, people: (prev.people||[]).map(p => orderOf[p.id]!==undefined ? { ...p, order: orderOf[p.id] } : p) };
-      });
-    },
-    // В архив — если у человека было включено отслеживание ДР, автоматически снимаем его (архив =
-    // связь приостановлена, тянуть за собой активную автоматику незачем) — а выключение
-    // отслеживания, в свою очередь, само снимает ещё невыполненный квест-поздравление и
-    // освобождает его год из birthdayQuestYears (см. комментарий у togglePersonBirthdayTracking
-    // ниже — иначе повторное включение отслеживания после разархивации не пересоздаёт квест).
-    // Всё восстанавливается одним "Отменить" в тосте — архивный статус, trackBirthday, снятый
-    // квест и год разом.
-    archivePerson(id) {
-      commit((prev, defer) => {
-        const target = (prev.people||[]).find(p => p.id===id);
-        if (!target) return prev;
-        const wasTracked = target.trackBirthday === true;
-        const { quests: questsAfter, removed: removedQuest } = wasTracked
-          ? extractActiveBirthdayQuest(prev.quests, id)
-          : { quests: prev.quests, removed: null };
-        const removedYear = removedQuest ? Number(removedQuest.deadline.slice(0,4)) : null;
-        defer(() => pushToast("Человек перемещён в архив", <Archive className="w-4 h-4 text-zinc-400"/>, () => {
-          setState(p2 => ({
-            ...p2,
-            people: (p2.people||[]).map(p => p.id===id ? {
-              ...p, archived:false, archivedAt:null,
-              trackBirthday: wasTracked ? true : p.trackBirthday,
-              birthdayQuestYears: removedYear!=null ? [...(p.birthdayQuestYears||[]), removedYear] : p.birthdayQuestYears,
-            } : p),
-            quests: removedQuest ? [removedQuest, ...p2.quests] : p2.quests,
-          }));
-        }));
-        return {
-          ...prev,
-          people: prev.people.map(p => p.id===id ? {
-            ...p, archived:true, archivedAt: todayStr(),
-            trackBirthday: wasTracked ? false : p.trackBirthday,
-            birthdayQuestYears: removedYear!=null ? (p.birthdayQuestYears||[]).filter(y => y!==removedYear) : p.birthdayQuestYears,
-          } : p),
-          quests: questsAfter,
-        };
-      });
-    },
-    // Ручной возврат из архива (кнопка на карточке) ставит человека в конец активного списка —
-    // в отличие от отмены через тост выше, которая восстанавливает точную прежнюю позицию.
-    // Отслеживание ДР при этом НЕ включается автоматически (см. "включать отслеживание
-    // автоматически не нужно") — если archivePerson его сняла, ручной возврат оставляет как есть,
-    // человек сам решит через глазик/кебаб-меню.
-    unarchivePerson(id) {
-      setState(prev => {
-        const activeCount = (prev.people||[]).filter(p=>!p.archived).length;
-        return { ...prev, people: (prev.people||[]).map(p => p.id===id ? { ...p, archived:false, archivedAt:null, order:activeCount } : p) };
-      });
-    },
-    // Мягкое удаление: карточка пропадает из активного пула и из выбора в формах, но personId,
-    // уже проставленный на квестах/привычках (+ снэпшот personName) и на долгах (+ текстовое
-    // поле person), не переписывается — история и подписи остаются рабочими и после удаления.
-    // Исключение — авто-квест "Поздравить с ДР": если он ещё не выполнен, его поздравлять уже
-    // некого, поэтому он удаляется ВМЕСТЕ с человеком (одним undo-действием — "Отменить" в тосте
-    // восстанавливает и человека, и квест разом, а не по отдельности). Уже выполненный квест
-    // поздравления не трогаем — он остаётся историей, как и любой другой завершённый квест
-    // человека (ТЗ «Календарь», раздел 2.1).
-    deletePerson(id) {
-      commit((prev, defer) => {
-        const removed = (prev.people||[]).find(p => p.id===id);
-        if (!removed) return prev;
-        const { quests: questsAfter, removed: removedQuest } = extractActiveBirthdayQuest(prev.quests, id);
-        defer(() => pushToast("Карточка человека удалена", <Trash2 className="w-4 h-4 text-zinc-400"/>, () => {
-          setState(p2 => ({
-            ...p2,
-            // Позиция в массиве здесь роли не играет (в отличие от сфер/привычек/типов отношений,
-            // где откат восстанавливает индекс): список людей рендерится отсортированным по полю
-            // order, которое у removed сохранилось нетронутым — человек вернётся на своё место.
-            people: [removed, ...(p2.people||[])],
-            quests: removedQuest ? [removedQuest, ...p2.quests] : p2.quests,
-          }));
-        }));
-        return { ...prev, people: prev.people.filter(p => p.id!==id), quests: questsAfter };
-      });
-    },
-    // Включение — просто флаг (личные данные — birthdayQuestYears — сохраняются как были).
-    // Выключение — вместе с флагом убирает ещё невыполненный квест-поздравление, если он есть, и
-    // освобождает его год из birthdayQuestYears — раньше год оставался помеченным навсегда, и
-    // повторное включение отслеживания в течение того же окна (например, сразу после случайного
-    // выключения) больше НИКОГДА не пересоздавало квест: он просто тихо не появлялся, при этом
-    // человек ожидал рабочего квеста и не понимал, куда он делся.
-    togglePersonBirthdayTracking(id) {
-      commit((prev, defer) => {
-        const person = prev.people.find(p => p.id===id);
-        if (!person) return prev;
-        if (person.trackBirthday !== true) {
-          return { ...prev, people: prev.people.map(p => p.id===id ? { ...p, trackBirthday:true } : p) };
-        }
-        const { quests: questsAfter, removed: removedQuest } = extractActiveBirthdayQuest(prev.quests, id);
-        const removedYear = removedQuest ? Number(removedQuest.deadline.slice(0,4)) : null;
-        if (removedQuest) {
-          defer(() => pushToast("Отслеживание ДР выключено, квест-поздравление снят", <EyeOff className="w-4 h-4 text-zinc-400"/>, () => {
-            setState(p2 => ({
-              ...p2,
-              people: p2.people.map(p => p.id===id ? {
-                ...p, trackBirthday:true,
-                birthdayQuestYears: removedYear!=null ? [...(p.birthdayQuestYears||[]), removedYear] : p.birthdayQuestYears,
-              } : p),
-              quests: [removedQuest, ...p2.quests],
-            }));
-          }));
-        }
-        return {
-          ...prev,
-          people: prev.people.map(p => p.id===id ? {
-            ...p, trackBirthday:false,
-            birthdayQuestYears: removedYear!=null ? (p.birthdayQuestYears||[]).filter(y => y!==removedYear) : p.birthdayQuestYears,
-          } : p),
-          quests: questsAfter,
-        };
-      });
-    },
     // Тот же принцип, что у togglePersonBirthdayTracking ниже: подписка — просто флаг (личные
     // данные — personIds/questYears — сохраняются как были, если уже отписывались раньше), отписка
     // — вместе с флагом убирает ещё невыполненный квест-поздравление этого праздника (если есть) и
@@ -1125,16 +990,6 @@ export default function App() {
           }));
         }
         return { ...prev, holidaySubscriptions: { ...subs, [holidayId]: { ...sub, subscribed:false, questYears:questYearsAfter } }, quests: questsAfter };
-      });
-    },
-    // Полностью заменяет список привязанных к празднику людей (чипы в Настройках сами решают,
-    // добавить или убрать — сюда прилетает уже готовый новый массив). Уже созданный квест этим не
-    // трогается — изменение состава влияет только на будущую генерацию (см. computeSyncedHolidayQuests).
-    setHolidayPeople(holidayId, personIds) {
-      setState(prev => {
-        const subs = prev.holidaySubscriptions || {};
-        const sub = subs[holidayId] || { subscribed:true, personIds:[], questYears:[] };
-        return { ...prev, holidaySubscriptions: { ...subs, [holidayId]: { ...sub, personIds } } };
       });
     },
     // Импорт части чужого сохранения (см. блок «ОБМЕН ЧАСТЯМИ СОХРАНЕНИЯ»). Записи всегда
@@ -1266,9 +1121,6 @@ export default function App() {
         defer(() => pushToast(`Добавлено записей: ${items.length}`, <Upload className="w-4 h-4 text-amber-400"/>));
         return next;
       });
-    },
-    updatePeopleCardFields(patch) {
-      setState(prev => ({ ...prev, uiPrefs: { ...(prev.uiPrefs||{}), peopleCardFields: { ...defaultPeopleCardFields(), ...(prev.uiPrefs && prev.uiPrefs.peopleCardFields), ...patch } } }));
     },
     setCalendarView(view) {
       setState(prev => ({ ...prev, uiPrefs: { ...(prev.uiPrefs||{}), calendar: { ...defaultCalendarPrefs(), ...(prev.uiPrefs && prev.uiPrefs.calendar), view } } }));
@@ -1606,87 +1458,11 @@ export default function App() {
     },
 
     /* --- Заметки --- */
-    addNoteFolder(folder) {
-      setState(prev => {
-        const order = (prev.noteFolders||[]).filter(f => (f.parentId||null)===(folder.parentId||null)).length;
-        return { ...prev, noteFolders: [...(prev.noteFolders||[]), { id: uid(), color:null, order, createdAt: todayStr(), ...folder }] };
-      });
-      pushToast("Папка создана", <FolderPlus className="w-4 h-4 text-amber-400"/>);
-    },
-    updateNoteFolder(id, patch) {
-      setState(prev => ({ ...prev, noteFolders: (prev.noteFolders||[]).map(f => f.id===id ? { ...f, ...patch } : f) }));
-    },
-    moveNoteFolder(id, parentId) {
-      // Проверка ДО записи: кольцо в дереве — не косметический дефект, обход по нему не
-      // завершается вовсе, и починить его через интерфейс уже нечем.
-      commit((prev, defer) => {
-        if (!canMoveFolder(prev.noteFolders||[], id, parentId)) {
-          defer(() => pushToast("Папку нельзя вложить в саму себя", <AlertCircle className="w-4 h-4 text-amber-400"/>));
-          return prev;
-        }
-        return { ...prev, noteFolders: (prev.noteFolders||[]).map(f => f.id===id ? { ...f, parentId: parentId||null } : f) };
-      });
-    },
-    deleteNoteFolder(id) {
-      commit((prev, defer) => {
-        const folders = prev.noteFolders || [];
-        if (!folders.some(f => f.id===id)) return prev;
-        const branch = folderBranchIds(folders, id);
-        // Индексы снимаются в момент удаления — откат возвращает и папки, и заметки на прежние
-        // места, а не сваливает их в начало списка (общий принцип insertAt по всему приложению).
-        const removedFolders = folders.map((f,i) => ({ f, i })).filter(x => branch.includes(x.f.id));
-        const removedNotes = (prev.notes||[]).map((n,i) => ({ n, i })).filter(x => branch.includes(x.n.folderId||null));
-        defer(() => pushToast(
-          removedNotes.length ? `Папка удалена вместе с заметками (${removedNotes.length})` : "Папка удалена",
-          <Trash2 className="w-4 h-4 text-zinc-400"/>,
-          () => setState(p2 => {
-            let nf = p2.noteFolders || [];
-            removedFolders.forEach(({ f, i }) => { nf = insertAt(nf, i, f); });
-            let nn = p2.notes || [];
-            removedNotes.forEach(({ n, i }) => { nn = insertAt(nn, i, n); });
-            return { ...p2, noteFolders: nf, notes: nn };
-          })));
-        return {
-          ...prev,
-          noteFolders: folders.filter(f => !branch.includes(f.id)),
-          notes: (prev.notes||[]).filter(n => !branch.includes(n.folderId||null)),
-        };
-      });
-    },
-    addNote(note) {
-      setState(prev => ({ ...prev, notes: [{ id: uid(), title:"", body:"", folderId:null, pinned:false, createdAt: todayStr(), updatedAt: todayStr(), ...note }, ...(prev.notes||[])] }));
-    },
-    updateNote(id, patch) {
-      setState(prev => ({ ...prev, notes: (prev.notes||[]).map(n => n.id===id ? { ...n, ...patch, updatedAt: todayStr() } : n) }));
-    },
-    toggleNotePinned(id) {
-      setState(prev => ({ ...prev, notes: (prev.notes||[]).map(n => n.id===id ? { ...n, pinned: !n.pinned } : n) }));
-    },
-    deleteNote(id) {
-      commit((prev, defer) => {
-        const idx = (prev.notes||[]).findIndex(n => n.id===id);
-        const removed = (prev.notes||[])[idx];
-        if (!removed) return prev;
-        defer(() => pushToast("Заметка удалена", <Trash2 className="w-4 h-4 text-zinc-400"/>,
-          () => setState(p2 => ({ ...p2, notes: insertAt(p2.notes||[], idx, removed) }))));
-        return { ...prev, notes: (prev.notes||[]).filter(n => n.id!==id) };
-      });
-    },
     markBackupDone() {
       setState(prev => ({ ...prev, lastBackupAt: todayStr() }));
     },
     updateMiscPrefs(patch) {
       setState(prev => ({ ...prev, uiPrefs: { ...(prev.uiPrefs||{}), misc: { ...defaultMiscPrefs(), ...(prev.uiPrefs && prev.uiPrefs.misc), ...patch } } }));
-    },
-    updateNotesPrefs(patch) {
-      setState(prev => ({ ...prev, uiPrefs: { ...(prev.uiPrefs||{}), notes: { ...defaultNotesPrefs(), ...(prev.uiPrefs && prev.uiPrefs.notes), ...patch } } }));
-    },
-    toggleNoteFolderExpanded(id) {
-      setState(prev => {
-        const cur = { ...defaultNotesPrefs(), ...(prev.uiPrefs && prev.uiPrefs.notes) };
-        const expanded = (cur.expanded||[]).includes(id) ? cur.expanded.filter(x => x!==id) : [...(cur.expanded||[]), id];
-        return { ...prev, uiPrefs: { ...(prev.uiPrefs||{}), notes: { ...cur, expanded } } };
-      });
     },
     setLogRewards(enabled) {
       commit((prev, defer) => {
@@ -1774,241 +1550,6 @@ export default function App() {
     },
 
     /* -------------------------------- NUTRITION -------------------------------- */
-    addFood(data) {
-      setState(prev => ({ ...prev, foods: [{ id:uid(), createdAt:todayStr(), ...data }, ...prev.foods] }));
-      pushToast("Продукт добавлен", <Sparkles className="w-4 h-4 text-amber-400"/>);
-    },
-    updateFood(id, patch) {
-      setState(prev => ({ ...prev, foods: prev.foods.map(f => f.id===id ? { ...f, ...patch } : f) }));
-    },
-    deleteFood(id) {
-      commit((prev, defer) => {
-        const removedIdx = prev.foods.findIndex(f => f.id===id);
-        const removed = prev.foods[removedIdx];
-        if (!removed) return prev;
-        defer(() => pushToast("Продукт удалён", <Trash2 className="w-4 h-4 text-zinc-400"/>, () => {
-          setState(p2 => ({ ...p2, foods: insertAt(p2.foods, removedIdx, removed) }));
-        }));
-        return { ...prev, foods: prev.foods.filter(f => f.id!==id) };
-      });
-    },
-    addDish(data) {
-      setState(prev => ({ ...prev, dishes: [{ id:uid(), createdAt:todayStr(), ...data }, ...prev.dishes] }));
-      pushToast("Блюдо добавлено", <Sparkles className="w-4 h-4 text-amber-400"/>);
-    },
-    updateDish(id, patch) {
-      setState(prev => ({ ...prev, dishes: prev.dishes.map(d => d.id===id ? { ...d, ...patch } : d) }));
-    },
-    deleteDish(id) {
-      commit((prev, defer) => {
-        const removedIdx = prev.dishes.findIndex(d => d.id===id);
-        const removed = prev.dishes[removedIdx];
-        if (!removed) return prev;
-        defer(() => pushToast("Блюдо удалено", <Trash2 className="w-4 h-4 text-zinc-400"/>, () => {
-          setState(p2 => ({ ...p2, dishes: insertAt(p2.dishes, removedIdx, removed) }));
-        }));
-        return { ...prev, dishes: prev.dishes.filter(d => d.id!==id) };
-      });
-    },
-    // Заводит инвентарь (приготовленное блюдо или запас продукта) от источника — БЖУ/100г
-    // считается на лету от sourceId, не копируется. expiryDate — необязательный срок годности.
-    addInventoryItem(sourceType, sourceId, gramsTotal, nameOverride, emojiOverride, expiryDate) {
-      setState(prev => {
-        const per100 = per100Of(sourceType, sourceId, prev.foods, prev.dishes);
-        if (!per100) return prev;
-        const item = { id:uid(), name: nameOverride || per100.name, emoji: emojiOverride || per100.emoji || "🍽️", sourceType, sourceId, gramsTotal:Number(gramsTotal)||0, gramsLeft:Number(gramsTotal)||0, expiryDate: expiryDate||null, createdAt:todayStr() };
-        return { ...prev, inventory: [item, ...prev.inventory] };
-      });
-      pushToast("Добавлено в инвентарь", <Sparkles className="w-4 h-4 text-amber-400"/>);
-    },
-    // Точечное редактирование записи инвентаря (сейчас нужно в первую очередь для правки срока
-    // годности после создания — тот же паттерн, что updateFood/updateDish).
-    updateInventoryItem(id, patch) {
-      setState(prev => ({ ...prev, inventory: prev.inventory.map(x => x.id===id ? { ...x, ...patch } : x) }));
-    },
-    deleteInventoryItem(id) {
-      commit((prev, defer) => {
-        const removedIdx = prev.inventory.findIndex(x => x.id===id);
-        const removed = prev.inventory[removedIdx];
-        if (!removed) return prev;
-        defer(() => pushToast("Запись инвентаря удалена", <Trash2 className="w-4 h-4 text-zinc-400"/>, () => {
-          setState(p2 => ({ ...p2, inventory: insertAt(p2.inventory, removedIdx, removed) }));
-        }));
-        return { ...prev, inventory: prev.inventory.filter(x => x.id!==id) };
-      });
-    },
-    // Выбросить остаток — обнуляет gramsLeft в обход дневника питания (никакой записи о приёме
-    // пищи не создаётся). Мягко: как удаление, отменяемо тостом (не путать с deleteInventoryItem,
-    // который убирает саму запись инвентаря целиком).
-    discardInventoryItem(id) {
-      commit((prev, defer) => {
-        const item = prev.inventory.find(x => x.id===id);
-        if (!item || item.gramsLeft<=0) return prev;
-        const prevGramsLeft = item.gramsLeft;
-        defer(() => pushToast("Остаток выброшен", <Trash2 className="w-4 h-4 text-zinc-400"/>, () => {
-          setState(p2 => ({ ...p2, inventory: p2.inventory.map(x => x.id===id ? { ...x, gramsLeft: prevGramsLeft } : x) }));
-        }));
-        return { ...prev, inventory: prev.inventory.map(x => x.id===id ? { ...x, gramsLeft: 0 } : x) };
-      });
-    },
-    // Съесть/использовать из инвентаря — списывает остаток И логирует в дневник одним действием
-    // (то самое "удобно вычитать" из ТЗ). Если в этом же приёме уже есть строка с тем же
-    // источником — не плодим вторую, суммируем граммовку в существующую (Яйцо + Яйцо = 2 яйца).
-    consumeInventory(id, grams, meal, date) {
-      setState(prev => {
-        const item = prev.inventory.find(x => x.id===id);
-        if (!item) return prev;
-        const per100 = per100Of(item.sourceType, item.sourceId, prev.foods, prev.dishes);
-        const d = date||todayStr(), m = meal||1;
-        const inventory = prev.inventory.map(x => x.id===id ? { ...x, gramsLeft: Math.max(0, x.gramsLeft-(Number(grams)||0)) } : x);
-        const dup = prev.nutritionLog.find(e => e.kind==="food" && e.date===d && (e.meal||1)===m && e.sourceType==="inventory" && e.sourceId===id);
-        if (dup) {
-          const combinedGrams = (dup.grams||0)+(Number(grams)||0);
-          const n = per100 ? nutritionFromGrams(per100, combinedGrams) : { calories:0, protein:0, fat:0, carbs:0 };
-          return { ...prev, inventory, nutritionLog: prev.nutritionLog.map(e => e.id===dup.id ? { ...dup, grams:combinedGrams, ...n } : e) };
-        }
-        const n = per100 ? nutritionFromGrams(per100, grams) : { calories:0, protein:0, fat:0, carbs:0 };
-        const logEntry = { id:uid(), date: d, kind:"food", sourceType:"inventory", sourceId:id, grams:Number(grams)||0, meal: m, ...n };
-        return { ...prev, inventory, nutritionLog: [logEntry, ...prev.nutritionLog] };
-      });
-    },
-    // То же слияние для продуктов/блюд (не из инвентаря): повторное добавление того же источника
-    // в тот же приём суммирует граммовку в уже существующую строку, а не создаёт новую.
-    logFood(sourceType, sourceId, grams, meal, date) {
-      setState(prev => {
-        const per100 = per100Of(sourceType, sourceId, prev.foods, prev.dishes);
-        if (!per100) return prev;
-        const d = date||todayStr(), m = meal||1;
-        const dup = prev.nutritionLog.find(e => e.kind==="food" && e.date===d && (e.meal||1)===m && e.sourceType===sourceType && e.sourceId===sourceId);
-        if (dup) {
-          const combinedGrams = (dup.grams||0)+(Number(grams)||0);
-          const n = nutritionFromGrams(per100, combinedGrams);
-          return { ...prev, nutritionLog: prev.nutritionLog.map(e => e.id===dup.id ? { ...dup, grams:combinedGrams, ...n } : e) };
-        }
-        const n = nutritionFromGrams(per100, grams);
-        const logEntry = { id:uid(), date: d, kind:"food", sourceType, sourceId, grams:Number(grams)||0, meal: m, ...n };
-        return { ...prev, nutritionLog: [logEntry, ...prev.nutritionLog] };
-      });
-    },
-    // Вода за день хранится ОДНОЙ записью (как еда — задваивать незачем): "+N мл" суммируется в
-    // неё же. Заодно самостоятельно схлопывает любые старые "россыпи" записей за ту же дату, если
-    // они где-то остались (не должно, но на всякий случай — не листать дневник ради этого).
-    logWater(ml, date) {
-      setState(prev => {
-        const d = date||todayStr();
-        const existingTotal = prev.nutritionLog.filter(e => e.kind==="water" && e.date===d).reduce((a,e) => a+(e.ml||0), 0);
-        const others = prev.nutritionLog.filter(e => !(e.kind==="water" && e.date===d));
-        const entry = { id:uid(), date:d, kind:"water", ml: existingTotal+(Number(ml)||0) };
-        return { ...prev, nutritionLog: [entry, ...others] };
-      });
-    },
-    // Прямая правка итога за день — так же просто, как pagesRead у книги или achievementsGot у игры.
-    setWaterForDay(date, ml) {
-      setState(prev => {
-        const d = date||todayStr();
-        const others = prev.nutritionLog.filter(e => !(e.kind==="water" && e.date===d));
-        const entry = { id:uid(), date:d, kind:"water", ml: Math.max(0, Number(ml)||0) };
-        return { ...prev, nutritionLog: [entry, ...others] };
-      });
-    },
-    // Редактирование строки дневника (источник и/или граммовка). Если старая и/или новая запись
-    // ведёт на инвентарь — корректно возвращает старое списание и применяет новое, тем же
-    // способом, что и consumeInventory (per100 берётся от sourceType/sourceId самого инвентарного
-    // предмета, а не от "inventory" напрямую — per100Of такого типа не понимает). Если после
-    // правки источник совпал с другой строкой этого же приёма — сливаем в неё (та же логика
-    // антидублирования, что при обычном добавлении), а редактируемая запись исчезает.
-    updateNutritionLogEntry(id, { sourceType, sourceId, grams }) {
-      setState(prev => {
-        const old = prev.nutritionLog.find(e => e.id===id);
-        if (!old) return prev;
-        let inventory = prev.inventory;
-        if (old.sourceType==="inventory") {
-          inventory = inventory.map(x => x.id===old.sourceId ? { ...x, gramsLeft: x.gramsLeft + (old.grams||0) } : x);
-        }
-        let per100 = null;
-        if (sourceType==="inventory") {
-          const invItem = inventory.find(x => x.id===sourceId);
-          if (!invItem) return prev;
-          per100 = per100Of(invItem.sourceType, invItem.sourceId, prev.foods, prev.dishes);
-        } else {
-          per100 = per100Of(sourceType, sourceId, prev.foods, prev.dishes);
-        }
-        if (!per100) return prev;
-        if (sourceType==="inventory") {
-          inventory = inventory.map(x => x.id===sourceId ? { ...x, gramsLeft: Math.max(0, x.gramsLeft-(Number(grams)||0)) } : x);
-        }
-        const dup = prev.nutritionLog.find(e => e.id!==id && e.kind==="food" && e.date===old.date && (e.meal||1)===(old.meal||1) && e.sourceType===sourceType && e.sourceId===sourceId);
-        if (dup) {
-          const combinedGrams = (dup.grams||0)+(Number(grams)||0);
-          const n = nutritionFromGrams(per100, combinedGrams);
-          const nutritionLog = prev.nutritionLog.filter(e => e.id!==id).map(e => e.id===dup.id ? { ...dup, grams:combinedGrams, ...n } : e);
-          return { ...prev, inventory, nutritionLog };
-        }
-        const n = nutritionFromGrams(per100, grams);
-        const updated = { ...old, sourceType, sourceId, grams:Number(grams)||0, ...n };
-        return { ...prev, inventory, nutritionLog: prev.nutritionLog.map(e => e.id===id ? updated : e) };
-      });
-      pushToast("Запись изменена", <Pencil className="w-4 h-4 text-amber-400"/>);
-    },
-    // Удаление строки дневника. Если запись списана с инвентарного предмета — грамм возвращается
-    // в остаток (той же логикой, что и при редактировании: sourceType/sourceId/grams самой записи
-    // и есть тот "маркер", по которому знаем, куда и сколько возвращать). Undo — зеркально списывает обратно.
-    // Переставить строку дневника на позицию выше/ниже внутри того же приёма (direction: -1/+1).
-    // Порядок отображения строк приёма — это их относительный порядок в самом nutritionLog,
-    // поэтому переставляем физически элементы массива, а не храним отдельное поле "order".
-    moveNutritionLogEntry(id, direction) {
-      setState(prev => {
-        const entry = prev.nutritionLog.find(e => e.id===id);
-        if (!entry) return prev;
-        const siblingArrIdx = [];
-        prev.nutritionLog.forEach((e,i) => { if (e.kind==="food" && e.date===entry.date && (e.meal||1)===(entry.meal||1)) siblingArrIdx.push(i); });
-        const entryArrIdx = prev.nutritionLog.indexOf(entry);
-        const pos = siblingArrIdx.indexOf(entryArrIdx);
-        const swapPos = pos + direction;
-        if (swapPos<0 || swapPos>=siblingArrIdx.length) return prev;
-        const otherArrIdx = siblingArrIdx[swapPos];
-        const arr = prev.nutritionLog.slice();
-        [arr[entryArrIdx], arr[otherArrIdx]] = [arr[otherArrIdx], arr[entryArrIdx]];
-        return { ...prev, nutritionLog: arr };
-      });
-    },
-    deleteNutritionLogEntry(id) {
-      commit((prev, defer) => {
-        const removedIdx = prev.nutritionLog.findIndex(e => e.id===id);
-        const removed = prev.nutritionLog[removedIdx];
-        if (!removed) return prev;
-        let inventory = prev.inventory;
-        if (removed.sourceType==="inventory") {
-          inventory = inventory.map(x => x.id===removed.sourceId ? { ...x, gramsLeft: x.gramsLeft+(removed.grams||0) } : x);
-        }
-        defer(() => pushToast("Запись удалена", <Trash2 className="w-4 h-4 text-zinc-400"/>, () => {
-          setState(p2 => {
-            let inv2 = p2.inventory;
-            if (removed.sourceType==="inventory") {
-              inv2 = inv2.map(x => x.id===removed.sourceId ? { ...x, gramsLeft: Math.max(0, x.gramsLeft-(removed.grams||0)) } : x);
-            }
-            return { ...p2, inventory: inv2, nutritionLog: insertAt(p2.nutritionLog, removedIdx, removed) };
-          });
-        }));
-        return { ...prev, inventory, nutritionLog: prev.nutritionLog.filter(e => e.id!==id) };
-      });
-    },
-    // Убрать пустой (без единой записи) приём и сдвинуть номера последующих приёмов этой даты
-    // на 1 вниз — чтобы не оставалось дырок в нумерации (1, [пусто], 3 → 1, 2). Сам пустой приём
-    // нигде не хранится (это чисто локальное состояние вида), поэтому действию нечего удалять из
-    // nutritionLog — только перенумеровать то, что идёт после.
-    renumberMealsAfterEmptyRemoved(date, removedMeal) {
-      setState(prev => ({
-        ...prev,
-        nutritionLog: prev.nutritionLog.map(e => (e.date===date && e.kind==="food" && (e.meal||1) > removedMeal) ? { ...e, meal:(e.meal||1)-1 } : e),
-      }));
-    },
-    updateNutritionGoal(patch) {
-      setState(prev => ({ ...prev, nutritionGoal: { ...defaultNutritionGoal(), ...prev.nutritionGoal, ...patch } }));
-    },
-    clearNutritionGoal() {
-      setState(prev => ({ ...prev, nutritionGoal: defaultNutritionGoal() }));
-    },
 
     // toggleLibrarySource("movie", "omdb", false) — включить/выключить конкретный источник
     // поиска обложек для конкретного вида.
@@ -2044,31 +1585,6 @@ export default function App() {
         const hidden = tabsPref.hidden.includes(id) ? tabsPref.hidden.filter(x => x!==id) : [...tabsPref.hidden, id];
         return { ...prev, uiPrefs: { ...(prev.uiPrefs||{}), tabs: { ...tabsPref, hidden } } };
       });
-    },
-
-    addRelation(rel) {
-      setState(prev => {
-        if ((prev.peopleRelations||[]).some(r => r.name.toLowerCase()===rel.name.toLowerCase())) return prev;
-        return { ...prev, peopleRelations: [...(prev.peopleRelations||[]), rel] };
-      });
-    },
-    deleteRelation(name) {
-      commit((prev, defer) => {
-        if (name === "Другое") return prev;
-        const removedIdx = (prev.peopleRelations||[]).findIndex(r => r.name===name);
-        const removed = (prev.peopleRelations||[])[removedIdx];
-        if (!removed) return prev;
-        defer(() => pushToast("Тип отношений удалён", <Trash2 className="w-4 h-4 text-zinc-400"/>, () => {
-          setState(p2 => ((p2.peopleRelations||[]).some(r=>r.name===name) ? p2 : { ...p2, peopleRelations: insertAt(p2.peopleRelations, removedIdx, removed) }));
-        }));
-        return { ...prev, peopleRelations: prev.peopleRelations.filter(r => r.name!==name) };
-      });
-    },
-    recolorRelation(name, color) {
-      setState(prev => ({ ...prev, peopleRelations: (prev.peopleRelations||[]).map(r => r.name===name ? { ...r, color } : r) }));
-    },
-    reorderRelation(fromIdx, toIdx) {
-      setState(prev => ({ ...prev, peopleRelations: moveInEditableList(prev.peopleRelations||[], fromIdx, toIdx) }));
     },
 
     addAchievement(a) {

@@ -71,7 +71,10 @@ export function financeActions({ setState, commit, pushToast }) {
     archiveAccount(id, archived) {
       setState(prev => ({ ...prev, accounts: (prev.accounts||[]).map(a => a.id===id ? { ...a, archived: !!archived } : a) }));
     },
-    addTransaction(tx) { setState(prev => ({ ...prev, transactions: [{ id:uid(), ...tx }, ...prev.transactions] })); },
+    addTransaction(tx) {
+      const id = uid();
+      setState(prev => ({ ...prev, transactions: [{ id, ...tx }, ...prev.transactions] }));
+    },
     updateTransaction(id, patch) { setState(prev => ({ ...prev, transactions: prev.transactions.map(t => t.id===id ? { ...t, ...patch } : t) })); },
     deleteTransaction(id) {
       commit((prev, defer) => {

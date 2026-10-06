@@ -1,9 +1,9 @@
-/* Окружение для тестов действий разделов (файлы actions.js в папках разделов): то же, что App даёт действиям, — setState,
-   commit и pushToast, — только состояние лежит в обычной переменной.
+/* Окружение для тестов действий разделов (файлы actions.js в папках разделов): то же, что App даёт
+   действиям, — setState, commit и pushToast, — только состояние лежит в обычной переменной.
 
-   commit здесь ведёт себя строже, чем в браузере. React вправе прогнать функцию обновления
+   setState и commit здесь ведут себя строже, чем в браузере. React вправе прогнать функцию обновления
    несколько раз (StrictMode делает это нарочно), поэтому она обязана быть чистой: от одного и того
-   же состояния — одинаковый результат. Окружение прогоняет её дважды и падает, если результаты
+   же состояния — одинаковый результат. Окружение прогоняет каждую дважды и падает, если результаты
    разошлись: обычно это uid() или todayStr() внутри обновления, а не до него. */
 const path = require("path");
 
@@ -14,7 +14,12 @@ function makeStore(initial) {
   const store = { state: initial, toasts: [] };
 
   store.setState = (next) => {
-    store.state = typeof next === "function" ? next(store.state) : next;
+    if (typeof next !== "function") { store.state = next; return; }
+    const first = next(store.state), second = next(store.state);
+    if (JSON.stringify(first) !== JSON.stringify(second)) {
+      throw new Error("функция обновления в setState нечистая: два прогона от одного состояния дали разный результат");
+    }
+    store.state = second;
   };
 
   store.commit = (updater) => {
