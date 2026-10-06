@@ -172,6 +172,19 @@ step("3. Аудит импортов и разметки");
       for (const p of patterns) {
         for (const m of p[1].matchAll(/(?:^|,)\s*(?:[\w$]+\s*:\s*)?([A-Z][\w$]*)/g)) known.add(m[1]);
       }
+      // Обычные параметры тоже объявляют имя: function toastIcon(Icon, tone), (Icon) => …, Icon => ….
+      // Параметры в фигурных и квадратных скобках разобраны выше; здесь — только простые имена.
+      const paramLists = [
+        ...code.matchAll(/function\s*[\w$]*\s*\(([^)]*)\)/g),
+        ...code.matchAll(/\(([^()]*)\)\s*=>/g),
+      ];
+      for (const p of paramLists) {
+        for (const part of p[1].split(",")) {
+          const m = part.trim().match(/^([A-Z][\w$]*)\s*(?:=|$)/);
+          if (m) known.add(m[1]);
+        }
+      }
+      for (const m of code.matchAll(/(?<![\w$.])([A-Z][\w$]*)\s*=>/g)) known.add(m[1]);
       const tags = new Set([...code.matchAll(/<([A-Z][A-Za-z0-9_]*)[\s/>]/g)].map(m => m[1]));
       // Обычные иконки ловим по любому упоминанию. Иконки, чьё имя совпадает с глобалом браузера
       // или JavaScript, — только там, где они стоят как иконка: тегом <Lock/> или значением
