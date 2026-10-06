@@ -170,9 +170,10 @@ export function collectionKindCounts(state, collectionId) {
     .sort((a, b) => b.count - a.count || a.label.localeCompare(b.label, "ru"));
 }
 
-export function buildImportedLibraryItem(it, k, today, sphereId) {
+// id можно передать готовым — так делает импорт, который собирает записи внутри обновления (см. replayIds).
+export function buildImportedLibraryItem(it, k, today, sphereId, id = uid()) {
   return {
-    id: uid(), title: it.title || "Без названия",
+    id, title: it.title || "Без названия",
     displayTitle: it.displayTitle || null,
     coverEmoji: it.coverEmoji || LIBRARY_KINDS[k].defaultEmoji,
     coverImage: it.coverImage || null,

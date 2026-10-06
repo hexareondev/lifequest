@@ -106,4 +106,31 @@ const person = (s, id) => s.state.people.find(p => p.id === id);
   eq("подписка по умолчанию включена", store.state.holidaySubscriptions.h1.subscribed, true);
 }
 
+// Подписка на праздник: отписка снимает невыполненный квест и освобождает год; откат возвращает.
+{
+  const store = makeStore({
+    people: [], peopleRelations: [], uiPrefs: {},
+    holidaySubscriptions: {},
+    quests: [
+      { id: "hq", linkedKind: "holidayGreeting", linkedRefId: "new_year", status: "active", deadline: "2027-01-01" },
+      { id: "q2", status: "active" },
+    ],
+  });
+  const act = peopleActions(store);
+  act.toggleHolidaySubscription("new_year");
+  eq("подписка включена", store.state.holidaySubscriptions.new_year, { personIds: [], questYears: [], subscribed: true });
+  act.setHolidayPeople("new_year", ["p1"]);
+  store.state.holidaySubscriptions.new_year.questYears = [2027];
+  act.toggleHolidaySubscription("new_year");
+  eq("отписка: флаг снят, год освобождён, люди сохранены", store.state.holidaySubscriptions.new_year, { personIds: ["p1"], questYears: [], subscribed: false });
+  eq("отписка сняла квест-поздравление", ids(store.state.quests), ["q2"]);
+  eq("в тосте — название праздника", store.lastToast().text, "Отписка от «Новый год», квест-поздравление снят");
+  store.undoLast();
+  eq("откат вернул подписку и год", [store.state.holidaySubscriptions.new_year.subscribed, store.state.holidaySubscriptions.new_year.questYears], [true, [2027]]);
+  eq("откат вернул квест", ids(store.state.quests), ["hq", "q2"]);
+  act.toggleHolidaySubscription("new_year");
+  act.toggleHolidaySubscription("new_year");
+  eq("повторная подписка после отписки работает", store.state.holidaySubscriptions.new_year.subscribed, true);
+}
+
 done();

@@ -1226,7 +1226,7 @@ export function SportView({ state, actions }) {
       <Modal open={planOpen} onClose={() => setPlanOpen(false)} title="Новый план" maxWidth="max-w-xl">
         <TrainingPlanForm state={state}
           onSubmit={(data) => {
-            actions.addTrainingPlan(data, (plan, prev) => buildPlanSessions(plan, data.schedule, data.weeks, data.startDate, prev.exercises, prev.workouts));
+            actions.addTrainingPlan(data, (plan, prev, newId) => buildPlanSessions(plan, data.schedule, data.weeks, data.startDate, prev.exercises, prev.workouts, newId));
             setPlanOpen(false);
           }}
           onCancel={() => setPlanOpen(false)} />

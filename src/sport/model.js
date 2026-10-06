@@ -171,7 +171,8 @@ export function isSportGoalActive(state) {
 
 // Материализация плана в сессии: по дням недели и числу недель. Никакого отдельного расписания —
 // каждая сессия сразу становится записью журнала со статусом "planned".
-export function buildPlanSessions(plan, schedule, weeks, startDate, exercises, workouts) {
+// newId — источник id; действие передаёт генератор из replayIds, потому что зовёт это внутри обновления.
+export function buildPlanSessions(plan, schedule, weeks, startDate, exercises, workouts, newId = uid) {
   const sessions = [];
   const start = weekStartOf(startDate);
   for (let w = 0; w < weeks; w++) {
@@ -184,9 +185,9 @@ export function buildPlanSessions(plan, schedule, weeks, startDate, exercises, w
         const ex = (exercises||[]).find(e => e.id===it.exerciseId);
         const kind = ex ? ex.kind : "strength";
         return {
-          id: uid(), exerciseId: it.exerciseId, name: ex ? ex.name : "Упражнение",
+          id: newId(), exerciseId: it.exerciseId, name: ex ? ex.name : "Упражнение",
           sets: Array.from({ length: Math.max(1, Number(it.sets)||1) }, () => ({
-            ...defaultSet(kind),
+            ...defaultSet(kind, newId()),
             reps: it.reps != null ? it.reps : defaultSet(kind).reps,
             weight: it.weight != null ? it.weight : null,
             minutes: it.minutes != null ? it.minutes : (kind==="strength" ? null : defaultSet(kind).minutes),
@@ -195,7 +196,7 @@ export function buildPlanSessions(plan, schedule, weeks, startDate, exercises, w
         };
       });
       sessions.push({
-        id: uid(), date, workoutId: template.id, planId: plan.id, sessionId: uid(),
+        id: newId(), date, workoutId: template.id, planId: plan.id, sessionId: newId(),
         title: template.title, status: "planned", minutes: null, rpe: null, notes: "", entries,
       });
     });
@@ -207,9 +208,10 @@ export function buildPlanSessions(plan, schedule, weeks, startDate, exercises, w
 // Запись журнала хранит СНИМОК названий и состава: переименовали упражнение — прошлые тренировки
 // не переписываются, потому что они уже случились именно в том виде (тот же принцип, что у
 // записей дневника питания и rewardXp квеста).
-export function defaultSet(kind) {
-  if (kind === "cardio" || kind === "mobility") return { id: uid(), minutes:10, km:null, reps:null, weight:null, done:false };
-  return { id: uid(), reps:10, weight:null, minutes:null, km:null, done:false };
+// id можно передать готовым — так делают действия, создающие подходы внутри обновления (см. replayIds).
+export function defaultSet(kind, id = uid()) {
+  if (kind === "cardio" || kind === "mobility") return { id, minutes:10, km:null, reps:null, weight:null, done:false };
+  return { id, reps:10, weight:null, minutes:null, km:null, done:false };
 }
 export function workoutLogOnDate(log, date) { return (log||[]).filter(w => w.date === date); }
 // Тоннаж: сумма вес×повторы по отмеченным подходам. Кардио в тоннаж не входит.

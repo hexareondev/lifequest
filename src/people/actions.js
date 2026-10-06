@@ -1,9 +1,11 @@
-// Действия раздела «Люди»: карточки, архив, порядок, дни рождения и типы отношений.
+// Действия раздела «Люди»: карточки, архив, порядок, дни рождения, праздники и типы отношений.
 // Устроены как действия финансов — см. finance/actions.js.
 
+import { defaultPeopleDetailPrefs } from "../core/prefs.js";
 import { todayStr, uid } from "../core/basics.js";
 import { insertAt, moveInEditableList } from "../core/lists.js";
 import { extractActiveBirthdayQuest } from "../habits/model.js";
+import { HOLIDAYS, extractActiveHolidayQuest } from "../quests/holidays.js";
 import { defaultPeopleCardFields } from "./model.js";
 import { Archive, EyeOff, Trash2, Users } from "lucide-react";
 import { toastIcon } from "../ui/toast-icon.js";
@@ -158,6 +160,42 @@ export function peopleActions({ setState, commit, pushToast }) {
       });
     },
 
+    // Тот же принцип, что у togglePersonBirthdayTracking выше: подписка — просто флаг (личные
+    // данные — personIds/questYears — сохраняются как были, если уже отписывались раньше), отписка
+    // — вместе с флагом убирает ещё невыполненный квест-поздравление этого праздника (если есть) и
+    // освобождает его год из questYears — иначе повторная подписка в течение того же окна ничего
+    // не давала бы: идемпотентность блокировала бы пересоздание, хотя человек явно попросил заново.
+    toggleHolidaySubscription(holidayId) {
+      commit((prev, defer) => {
+        const subs = prev.holidaySubscriptions || {};
+        const sub = subs[holidayId];
+        if (!sub || !sub.subscribed) {
+          // ВАЖНО: ...sub — первым, subscribed:true — последним. Раньше было наоборот, и если у
+          // подписки уже была история (sub существует, но subscribed:false после отписки), спред
+          // ...sub, идущий последним, тут же затирал subscribed обратно на false — повторно
+          // подписаться было невозможно никаким кликом.
+          return { ...prev, holidaySubscriptions: { ...subs, [holidayId]: { personIds:[], questYears:[], ...sub, subscribed:true } } };
+        }
+        const { quests: questsAfter, removed: removedQuest } = extractActiveHolidayQuest(prev.quests, holidayId);
+        const removedYear = removedQuest ? Number(removedQuest.deadline.slice(0,4)) : null;
+        const questYearsAfter = removedYear!=null ? (sub.questYears||[]).filter(y => y!==removedYear) : sub.questYears;
+        if (removedQuest) {
+          const holiday = HOLIDAYS.find(h => h.id===holidayId);
+          defer(() => pushToast(`Отписка от «${holiday ? holiday.name : "праздника"}», квест-поздравление снят`, toastIcon(EyeOff, "text-zinc-400"), () => {
+            setState(p2 => {
+              const curSub = (p2.holidaySubscriptions && p2.holidaySubscriptions[holidayId]) || sub;
+              return {
+                ...p2,
+                holidaySubscriptions: { ...(p2.holidaySubscriptions||{}), [holidayId]: { ...curSub, subscribed:true, questYears: sub.questYears } },
+                quests: [removedQuest, ...p2.quests],
+              };
+            });
+          }));
+        }
+        return { ...prev, holidaySubscriptions: { ...subs, [holidayId]: { ...sub, subscribed:false, questYears:questYearsAfter } }, quests: questsAfter };
+      });
+    },
+
     // Полностью заменяет список привязанных к празднику людей (чипы в Настройках сами решают,
     // добавить или убрать — сюда прилетает уже готовый новый массив). Уже созданный квест этим не
     // трогается — изменение состава влияет только на будущую генерацию (см. computeSyncedHolidayQuests).
@@ -199,6 +237,16 @@ export function peopleActions({ setState, commit, pushToast }) {
 
     reorderRelation(fromIdx, toIdx) {
       setState(prev => ({ ...prev, peopleRelations: moveInEditableList(prev.peopleRelations||[], fromIdx, toIdx) }));
+    },
+
+    // Свернуть/развернуть секцию карточки человека (Квесты/Привычки/Долги/Переводы) — общая
+    // настройка вида, запоминается между сессиями (не привязана к конкретному человеку).
+    toggleCollapsedSection(key) {
+      setState(prev => {
+        const cur = (prev.uiPrefs && prev.uiPrefs.peopleDetail && prev.uiPrefs.peopleDetail.collapsedSections) || [];
+        const next = cur.includes(key) ? cur.filter(k => k!==key) : [...cur, key];
+        return { ...prev, uiPrefs: { ...(prev.uiPrefs||{}), peopleDetail: { ...defaultPeopleDetailPrefs(), ...(prev.uiPrefs && prev.uiPrefs.peopleDetail), collapsedSections: next } } };
+      });
     },
   };
 }
