@@ -20,14 +20,23 @@ const done = () => { if (stepFailed) failed = true; else console.log("ok"); };
 const fail = (msg) => { console.log(msg); stepFailed = true; };
 
 function tsc(extra) {
+  let out;
   try {
-    return execSync(
+    out = execSync(
       `npx tsc --jsx preserve --noEmit --allowJs --skipLibCheck ${extra} --target es2020 --module esnext --moduleResolution bundler "${MAIN}"`,
       { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }
     );
   } catch (e) {
-    return (e.stdout || "") + (e.stderr || "");
+    out = (e.stdout || "") + (e.stderr || "");
+    // Компилятор, который отработал, всегда говорит кодами «error TS…» (без @types/react их полно
+    // и в чистом коде). Нет ни одного кода — значит, он не запустился вовсе, и шаги ниже иначе
+    // молча написали бы «ok», ничего не проверив.
+    if (!/error TS\d+/.test(out)) {
+      console.log("ОШИБКА: компилятор не запустился:\n" + out.trim().split("\n").slice(0, 8).join("\n"));
+      process.exit(1);
+    }
   }
+  return out;
 }
 
 // Комментарии и строки заменяются пробелами, чтобы имя в тексте («иконка Lock») или ключ в
@@ -112,6 +121,13 @@ step("3. Аудит импортов и разметки");
     console.log("предупреждение: lucide-react не загрузился, проверка иконок без импорта пропущена");
   }
 
+  // Иконки lucide, чьё имя совпадает с глобальным именем браузера или JavaScript. Получено
+  // пересечением всех имён иконок lucide-react 0.383 (вместе с псевдонимами) и глобалов из
+  // объявлений DOM и ES в TypeScript. Опасны именно они: без импорта такое имя не «не определено»,
+  // а молча указывает на браузерный класс — так иконка Lock стала классом Web Locks API.
+  const GLOBAL_NAMED_ICONS = new Set(["Clipboard", "File", "Gamepad", "History", "Image", "Infinity",
+    "Lock", "Map", "Navigation", "Option", "Text"]);
+
   const GLOBALS = new Set(["Map","Set","Image","Text","Range","Screen","Audio","Option","Event","Node",
     "Element","File","Blob","URL","Function","Object","Array","Number","String","Date","Promise",
     "Symbol","Error","JSON","Math","Intl","Document","Window","Location","Request","Response"]);
@@ -119,7 +135,8 @@ step("3. Аудит импортов и разметки");
   for (const file of files) {
     const src = readFileSync(file, "utf8");
     const names = [];
-    for (const m of src.matchAll(/import\s*\{([\s\S]*?)\}\s*from\s*"[^"]+"/g)) {
+    // import { … } from и import React, { … } from — имя по умолчанию перед скобкой тоже бывает.
+    for (const m of src.matchAll(/import\s*(?:[\w$]+\s*,\s*)?\{([\s\S]*?)\}\s*from\s*"[^"]+"/g)) {
       if (/\/\/|\/\*/.test(m[1])) {
         console.log(`ОШИБКА ${file}: комментарий внутри блока импорта — ломает загрузчик превью`);
         stepFailed = true;
@@ -144,12 +161,26 @@ step("3. Аудит импортов и разметки");
       const known = new Set(["React", "Fragment", ...names]);
       for (const m of src.matchAll(/^import\s+(\w+)/gm)) known.add(m[1]);
       for (const m of code.matchAll(/(?:const|let|var|function|class)\s+([A-Z][\w$]*)/g)) known.add(m[1]);
-      // { icon: Icon } и { icon: Icon = Plus } в параметрах и деструктуризации
-      for (const m of code.matchAll(/\b[a-z][\w$]*\s*:\s*([A-Z][\w$]*)\s*(?:=[^,}]*)?\s*[,}]/g)) known.add(m[1]);
-      for (const m of code.matchAll(/\{\s*([A-Z][\w$]*)\s*[,}]/g)) known.add(m[1]);
+      // Переименование при деструктуризации — function X({ icon: Icon }), ({ icon: Icon = Plus }) =>,
+      // const { icon: Icon } = … — объявляет имя. Ищем его только там: тот же вид у обычного объекта
+      // { icon: Lock } означает использование, а не объявление, и его как раз нужно проверить.
+      const patterns = [
+        ...code.matchAll(/function\s*[\w$]*\s*\(\s*\{([^}]*)\}/g),
+        ...code.matchAll(/\(\s*\{([^}]*)\}\s*(?:,[^)]*)?\)\s*=>/g),
+        ...code.matchAll(/(?:const|let|var)\s*\{([^}]*)\}\s*=/g),
+      ];
+      for (const p of patterns) {
+        for (const m of p[1].matchAll(/(?:^|,)\s*(?:[\w$]+\s*:\s*)?([A-Z][\w$]*)/g)) known.add(m[1]);
+      }
       const tags = new Set([...code.matchAll(/<([A-Z][A-Za-z0-9_]*)[\s/>]/g)].map(m => m[1]));
+      // Обычные иконки ловим по любому упоминанию. Иконки, чьё имя совпадает с глобалом браузера
+      // или JavaScript, — только там, где они стоят как иконка: тегом <Lock/> или значением
+      // icon: Lock. Иначе Infinity в списке чисел и new File(...) считались бы иконками без импорта.
       const icons = new Set([...code.matchAll(/(?<![\w.$])([A-Z][A-Za-z0-9]*)(?![\w$])/g)]
-        .map(m => m[1]).filter(n => LUCIDE.has(n) && n !== "Map"));
+        .map(m => m[1]).filter(n => LUCIDE.has(n) && !GLOBAL_NAMED_ICONS.has(n)));
+      for (const m of code.matchAll(/\bicon\s*:\s*([A-Z][\w$]*)/g)) {
+        if (GLOBAL_NAMED_ICONS.has(m[1])) icons.add(m[1]);
+      }
       const missing = [...new Set([...tags, ...icons])].filter(n => !known.has(n)).sort();
       if (missing.length) fail(`ОШИБКА ${file}: используется без импорта: ${missing.join(", ")}`);
     }
